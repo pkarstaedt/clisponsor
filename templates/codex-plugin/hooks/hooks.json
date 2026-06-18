@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__CLIADS_HOOK_SCRIPT__\" SessionStart",
+            "timeout": 5,
+            "statusMessage": "Loading sponsor"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__CLIADS_HOOK_SCRIPT__\" UserPromptSubmit",
+            "timeout": 5,
+            "statusMessage": "Loading sponsor"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"__CLIADS_HOOK_SCRIPT__\" Stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

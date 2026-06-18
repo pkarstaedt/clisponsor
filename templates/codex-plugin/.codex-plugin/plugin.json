@@ -1,0 +1,26 @@
+{
+  "name": "clisponsor",
+  "version": "1.0.0",
+  "description": "Display sponsored CLI ads in Codex hooks and track impressions.",
+  "author": {
+    "name": "CLIsponsor",
+    "email": "support@clisponsor.com",
+    "url": "https://clisponsor.com"
+  },
+  "license": "UNLICENSED",
+  "keywords": ["ads", "codex", "hooks"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "CLIsponsor",
+    "shortDescription": "Sponsored CLI lines for Codex.",
+    "longDescription": "Fetches short sponsored lines from the CLIsponsor network and records impressions.",
+    "developerName": "CLIsponsor",
+    "category": "Productivity",
+    "capabilities": ["Hooks"],
+    "websiteURL": "https://clisponsor.com",
+    "privacyPolicyURL": "https://clisponsor.com/#privacy",
+    "termsOfServiceURL": "https://clisponsor.com",
+    "defaultPrompt": ["Use CLIsponsor in this session."],
+    "brandColor": "#2563EB"
+  }
+}
