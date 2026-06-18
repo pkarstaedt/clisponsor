@@ -23,58 +23,32 @@ function readConfig() {
   return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
 }
 
-function signedHeaders(cfg, body) {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const nonce = crypto.randomUUID();
-  const canonical = [
-    "v1",
-    timestamp,
-    nonce,
-    body.client || "",
-    body.hook_event || "",
-    body.placement || "",
-    body.idempotency_key || "",
-    body.user_id || "",
-  ].join("\n");
-  const signature = crypto.createHmac("sha256", cfg.installToken).update(canonical).digest("hex");
-  return {
-    "content-type": "application/json",
-    authorization: `Bearer ${cfg.installToken}`,
-    "x-clisponsor-timestamp": timestamp,
-    "x-clisponsor-nonce": nonce,
-    "x-clisponsor-signature": `sha256=${signature}`,
-    "x-clisponsor-hook-version": HOOK_VERSION,
-  };
-}
-
 const cfg = readConfig();
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
-const stdin = await readStdin();
-let hookInput = {};
-try {
-  hookInput = stdin ? JSON.parse(stdin) : {};
-} catch {
-  hookInput = { raw: stdin };
-}
+await readStdin();
 
 try {
-  if (!serveBaseUrl || !cfg.installToken) process.exit(0);
+  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode) process.exit(0);
   const placement = PLACEMENTS[EVENT] || "StartTurn";
   const body = {
+    user_id: cfg.userId,
+    device_code: cfg.deviceCode,
     client: "Codex",
     hook_event: EVENT,
     placement,
     idempotency_key: crypto.randomUUID(),
-    metadata: { hookInput, hookVersion: HOOK_VERSION },
+    metadata: { hookVersion: HOOK_VERSION },
   };
   const res = await fetch(`${serveBaseUrl}/v1/ads/serve`, {
     method: "POST",
-    headers: signedHeaders(cfg, body),
+    headers: {
+      "content-type": "application/json",
+      "x-clisponsor-hook-version": HOOK_VERSION,
+    },
     body: JSON.stringify(body),
   });
   if (!res.ok) process.exit(0);
   const ad = await res.json();
-  if (EVENT === "Stop") process.exit(0);
   if (ad.display_line) console.log(JSON.stringify({ systemMessage: ad.display_line }));
 } catch {
   process.exit(0);

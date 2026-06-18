@@ -99,7 +99,10 @@ function config() {
     serveBaseUrl,
     backendBaseUrl,
     apiBaseUrl: serveBaseUrl,
-    installToken: raw.installToken || "",
+    email: raw.email || "",
+    userId: raw.userId || raw.user_id || "",
+    deviceCode: raw.deviceCode || raw.device_code || "",
+    deviceLabel: raw.deviceLabel || raw.device_label || raw.label || "",
   };
 }
 
@@ -208,41 +211,57 @@ function removeClaudeCommandHooks(settings) {
   return changed;
 }
 
-function writeLoginConfig() {
+async function registerDevice() {
+  const email = positionalArg(3);
+  if (!email) {
+    console.error("Missing email. Run: clisponsor login <email>");
+    process.exit(1);
+  }
   const next = config();
-  const tokenArg = argValue("--token") || (["add", "join"].includes(process.argv[2]) ? positionalArg(3) : undefined);
-  const tokenFileArg = argValue("--token-file");
-  const codeArg = argValue("--code");
-  const legacyApiArg = argValue("--api");
   const serveApiArg = argValue("--serve-api");
   const backendApiArg = argValue("--backend-api");
+  const labelArg = argValue("--label");
 
-  if (tokenArg) next.installToken = tokenArg;
-  else if (tokenFileArg) next.installToken = fs.readFileSync(tokenFileArg, "utf8").trim();
-  else if (codeArg) {
-    next.installToken = codeArg;
-    console.error("Legacy --code accepted as an install token alias. Prefer --token=<install-token>.");
-  }
-  if (legacyApiArg) {
-    next.serveBaseUrl = normalizeBaseUrl(legacyApiArg);
-    next.backendBaseUrl = normalizeBaseUrl(legacyApiArg);
-  }
   if (serveApiArg) next.serveBaseUrl = normalizeBaseUrl(serveApiArg);
   if (backendApiArg) next.backendBaseUrl = normalizeBaseUrl(backendApiArg);
   next.apiBaseUrl = next.serveBaseUrl;
 
-  if (["add", "join"].includes(process.argv[2]) && !next.installToken) {
-    console.error("Missing install token. Run: clisponsor add <install-token>");
+  const response = await fetch(`${next.backendBaseUrl}/v1/cli/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email,
+      label: labelArg || next.deviceLabel || undefined,
+      serve_base_url: next.serveBaseUrl,
+    }),
+    signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
+  });
+  let payload = {};
+  try {
+    payload = await response.json();
+  } catch {}
+  if (!response.ok) {
+    const detail = payload.detail || payload.error || `HTTP ${response.status}`;
+    console.error(`CLIsponsor login failed: ${detail}`);
     process.exit(1);
   }
 
+  next.email = payload.email || email;
+  next.userId = payload.user_id || payload.userId;
+  next.deviceCode = payload.device_code || payload.deviceCode;
+  next.deviceLabel = payload.label || labelArg || next.deviceLabel || "";
+  if (!next.userId || !next.deviceCode) {
+    console.error("CLIsponsor login failed: backend response did not include user_id and device_code.");
+    process.exit(1);
+  }
   writeJson(CONFIG_PATH, next);
-  console.log(`Wrote ${CONFIG_PATH}`);
+  console.log(`Logged in ${next.email}`);
+  console.log(`Device code: ${next.deviceCode}`);
   return next;
 }
 
-function login() {
-  writeLoginConfig();
+async function login() {
+  await registerDevice();
 }
 
 function installCodex() {
@@ -312,22 +331,16 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 const cfg = JSON.parse(fs.readFileSync(${JSON.stringify(CONFIG_PATH)}, "utf8"));
 const event = process.argv[2] || "StartTurn";
+const placements = { SessionStart: "StartSession", UserPromptSubmit: "StartTurn", Stop: "EndTurn", StartTurn: "StartTurn" };
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
 try {
-  if (!serveBaseUrl || !cfg.installToken) process.exit(0);
-  const body = { client: "Gemini", hook_event: event, placement: event, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)} } };
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const nonce = crypto.randomUUID();
-  const canonical = ["v1", timestamp, nonce, body.client || "", body.hook_event || "", body.placement || "", body.idempotency_key || "", body.user_id || ""].join("\\n");
-  const signature = crypto.createHmac("sha256", cfg.installToken).update(canonical).digest("hex");
+  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode) process.exit(0);
+  const placement = placements[event] || event;
+  const body = { user_id: cfg.userId, device_code: cfg.deviceCode, client: "Gemini", hook_event: event, placement, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)} } };
   const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: "Bearer " + cfg.installToken,
-      "x-clisponsor-timestamp": timestamp,
-      "x-clisponsor-nonce": nonce,
-      "x-clisponsor-signature": "sha256=" + signature,
       "x-clisponsor-hook-version": ${JSON.stringify(HOOK_VERSION)}
     },
     body: JSON.stringify(body)
@@ -355,11 +368,6 @@ function installAll() {
   installCodex();
   installClaude();
   installGemini();
-}
-
-function add() {
-  writeLoginConfig();
-  installAll();
 }
 
 function uninstallCodex() {
@@ -420,15 +428,18 @@ async function fetchProbe(url, headers = {}) {
 
 async function status() {
   const cfg = config();
-  if (!cfg.installToken) {
-    console.error("Not set up. Run: clisponsor add <install-token>");
+  if (!cfg.userId || !cfg.deviceCode) {
+    console.error("Not logged in. Run: clisponsor login <email>");
     process.exit(1);
   }
-  const res = await fetch(`${cfg.backendBaseUrl}/v1/publisher/stats`, {
-    headers: { authorization: `Bearer ${cfg.installToken}` },
-    signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
-  });
-  console.log(JSON.stringify(await res.json(), null, 2));
+  console.log(JSON.stringify({
+    email: cfg.email,
+    user_id: cfg.userId,
+    device_code: cfg.deviceCode,
+    label: cfg.deviceLabel || null,
+    serveBaseUrl: cfg.serveBaseUrl,
+    backendBaseUrl: cfg.backendBaseUrl,
+  }, null, 2));
 }
 
 async function doctor() {
@@ -441,7 +452,10 @@ async function doctor() {
     configExists: fs.existsSync(CONFIG_PATH),
     serveBaseUrl: cfg.serveBaseUrl,
     backendBaseUrl: cfg.backendBaseUrl,
-    loggedIn: Boolean(cfg.installToken),
+    loggedIn: Boolean(cfg.userId && cfg.deviceCode),
+    email: cfg.email || null,
+    userId: cfg.userId || null,
+    deviceCode: cfg.deviceCode || null,
     installed: {
       codexPluginStaged: fs.existsSync(path.join(CONFIG_DIR, "codex-marketplace", "plugins", "clisponsor")),
       claudeSettings: fs.existsSync(path.join(HOME, ".claude", "settings.json")),
@@ -454,11 +468,7 @@ async function doctor() {
   if (!skipNetwork) {
     diagnostics.network.serveHealth = await fetchProbe(`${cfg.serveBaseUrl}/healthz`);
     diagnostics.network.backendHealth = await fetchProbe(`${cfg.backendBaseUrl}/healthz`);
-    diagnostics.network.publisherStats = cfg.installToken
-      ? await fetchProbe(`${cfg.backendBaseUrl}/v1/publisher/stats`, {
-          authorization: `Bearer ${cfg.installToken}`,
-        })
-      : { ok: false, skipped: "not logged in" };
+    diagnostics.network.cliLoginEndpoint = await fetchProbe(`${cfg.backendBaseUrl}/healthz`);
   } else {
     diagnostics.network.skipped = true;
   }
@@ -473,6 +483,8 @@ async function doctor() {
   console.log(`Serve API: ${diagnostics.serveBaseUrl}`);
   console.log(`Backend API: ${diagnostics.backendBaseUrl}`);
   console.log(`Logged in: ${diagnostics.loggedIn ? "yes" : "no"}`);
+  if (diagnostics.email) console.log(`Email: ${diagnostics.email}`);
+  if (diagnostics.deviceCode) console.log(`Device code: ${diagnostics.deviceCode}`);
   console.log(`Codex plugin staged: ${diagnostics.installed.codexPluginStaged ? "yes" : "no"}`);
   console.log(`Claude settings: ${diagnostics.installed.claudeSettings ? "yes" : "no"}`);
   console.log(`Claude hook script: ${diagnostics.installed.claudeHookScript ? "yes" : "no"}`);
@@ -482,30 +494,30 @@ async function doctor() {
   } else {
     console.log(`Serve health: ${diagnostics.network.serveHealth.status || "unavailable"}`);
     console.log(`Backend health: ${diagnostics.network.backendHealth.status || "unavailable"}`);
-    console.log(`Publisher stats: ${diagnostics.network.publisherStats.status || diagnostics.network.publisherStats.skipped || "unavailable"}`);
   }
 }
 
 function help() {
   console.log(`clisponsor commands:
-  clisponsor add <install-token>
-  clisponsor add --token-file=<path>
+  clisponsor install
+  clisponsor login <email> [--label=<device-label>]
   clisponsor uninstall [--config]
   clisponsor status
   clisponsor doctor [--json] [--skip-network]
 
-Automation:
-  Use --token-file so install tokens do not appear in process argv.`);
+Environment:
+  CLISPONSOR_BACKEND_BASE_URL and CLISPONSOR_SERVE_BASE_URL override production endpoints.`);
 }
 
 const command = process.argv[2] || "help";
-if (command === "add" || command === "join") add();
-else if (command === "login" || command === "configure") login();
+if (command === "login") await login();
 else if (command === "install" && (!process.argv[3] || process.argv[3] === "all")) installAll();
-else if (command === "install" && process.argv[3] === "codex") installCodex();
-else if (command === "install" && process.argv[3] === "claude") installClaude();
-else if (command === "install" && process.argv[3] === "gemini") installGemini();
 else if (command === "uninstall") uninstall();
 else if (command === "status") await status();
 else if (command === "doctor") await doctor();
-else help();
+else if (command === "help" || command === "--help" || command === "-h") help();
+else {
+  console.error(`Unknown command: ${command}`);
+  help();
+  process.exit(1);
+}
