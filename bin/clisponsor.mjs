@@ -129,6 +129,15 @@ function chmodExecutable(file) {
   } catch {}
 }
 
+function commandExists(command) {
+  try {
+    execFileSync(command, ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isClisponsorCommand(value) {
   return (
     typeof value === "string" &&
@@ -267,7 +276,6 @@ async function login() {
 }
 
 function installCodex() {
-  const cfg = config();
   const pluginRoot = path.join(CONFIG_DIR, "codex-plugin");
   copyDir(path.join(ROOT, "templates", "codex-plugin"), pluginRoot);
   patchFile(path.join(pluginRoot, "hooks", "hooks.json"), {
@@ -302,20 +310,23 @@ function installCodex() {
   } catch {}
   try {
     execFileSync("codex", ["plugin", "add", "clisponsor@clisponsor-local"], { stdio: "ignore" });
-    console.log("Codex plugin installed.");
+    console.log("Codex CLI plugin installed.");
   } catch {
-    console.log("Codex plugin staged. If Codex is installed, run: codex plugin add clisponsor@clisponsor-local");
+    console.log("Codex CLI plugin staged. After installing Codex CLI, rerun: npx clisponsor install");
   }
-  console.log(`Codex Serve API: ${cfg.serveBaseUrl}`);
 }
 
 function installClaude() {
-  const cfg = config();
   const claudeDir = path.join(CONFIG_DIR, "claude");
   const installedHook = path.join(claudeDir, "clisponsor_claude_hook.mjs");
   fs.mkdirSync(claudeDir, { recursive: true });
   fs.copyFileSync(path.join(ROOT, "templates", "claude", "clisponsor_claude_hook.mjs"), installedHook);
   chmodExecutable(installedHook);
+
+  if (!commandExists("claude")) {
+    console.log("Claude Code CLI hook staged. After installing Claude Code CLI, rerun: npx clisponsor install");
+    return;
+  }
 
   const settingsPath = path.join(HOME, ".claude", "settings.json");
   const settings = readEditableJson(settingsPath, {});
@@ -324,7 +335,7 @@ function installClaude() {
   addClaudeCommandHook(settings, "Stop", `node ${JSON.stringify(installedHook)} Stop`);
   writeJson(settingsPath, settings);
   console.log(`Updated ${settingsPath}`);
-  console.log(`Claude hook installed. Serve API: ${cfg.serveBaseUrl}`);
+  console.log("Claude Code CLI hook installed.");
 }
 
 function geminiHookSource() {
@@ -357,14 +368,17 @@ try {
 }
 
 function installGemini() {
-  const cfg = config();
   const geminiDir = path.join(CONFIG_DIR, "gemini");
   fs.mkdirSync(geminiDir, { recursive: true });
   const hookPath = path.join(geminiDir, "clisponsor_gemini_hook.mjs");
   fs.writeFileSync(hookPath, geminiHookSource(), { mode: 0o755 });
-  console.log(`Gemini hook script written: ${hookPath}`);
-  console.log(`Configure Gemini to run: node ${JSON.stringify(hookPath)} StartTurn`);
-  console.log(`Serve API: ${cfg.serveBaseUrl}`);
+  if (commandExists("gemini")) {
+    console.log("Gemini CLI hook script staged.");
+    console.log("Gemini CLI does not expose a CLIsponsor auto-configuration target yet; configure it to run:");
+    console.log(`node ${JSON.stringify(hookPath)} StartTurn`);
+  } else {
+    console.log("Gemini CLI hook script staged. After installing Gemini CLI, rerun: npx clisponsor install");
+  }
 }
 
 function installAll() {
@@ -485,8 +499,6 @@ async function doctor() {
 
   console.log(`Version: ${diagnostics.version}`);
   console.log(`Config: ${diagnostics.configPath}`);
-  console.log(`Serve API: ${diagnostics.serveBaseUrl}`);
-  console.log(`Backend API: ${diagnostics.backendBaseUrl}`);
   console.log(`Logged in: ${diagnostics.loggedIn ? "yes" : "no"}`);
   if (diagnostics.email) console.log(`Email: ${diagnostics.email}`);
   if (diagnostics.deviceCode) console.log(`Device code: ${diagnostics.deviceCode}`);

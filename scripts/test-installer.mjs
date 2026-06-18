@@ -10,10 +10,10 @@ const bin = path.join(root, "bin", "clisponsor.mjs");
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "clisponsor-hook-test-"));
 
 function runRaw(args, options = {}) {
-  const { expectedStatus = 0, input = "", env = {}, testHome = home } = options;
+  const { expectedStatus = 0, input = "", env = {}, testHome = home, pathValue = process.env.PATH } = options;
   const result = spawnSync(process.execPath, [bin, ...args], {
     cwd: root,
-    env: { ...process.env, HOME: testHome, ...env },
+    env: { ...process.env, HOME: testHome, PATH: pathValue, ...env },
     input,
     encoding: "utf8",
   });
@@ -27,6 +27,25 @@ function runRaw(args, options = {}) {
 
 function run(args, options = {}) {
   return runRaw(args, options).stdout;
+}
+
+function makeFakeBin(commands) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clisponsor-bin-"));
+  for (const command of commands) {
+    const file = path.join(dir, command);
+    fs.writeFileSync(
+      file,
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "${command} test"
+  exit 0
+fi
+exit 0
+`,
+      { mode: 0o755 },
+    );
+  }
+  return dir;
 }
 
 function readJson(file) {
@@ -114,7 +133,15 @@ globalThis.fetch = async (url, options) => {
 `,
   );
 
-  run(["install"]);
+  const fakeBin = makeFakeBin(["claude"]);
+  const testPath = `${fakeBin}${path.delimiter}${process.env.PATH}`;
+
+  const installOutput = run(["install"], { pathValue: testPath });
+  assert.match(installOutput, /Codex CLI plugin/);
+  assert.match(installOutput, /Claude Code CLI hook installed/);
+  assert.match(installOutput, /Gemini CLI hook script staged/);
+  assert.doesNotMatch(installOutput, /Serve API/);
+  assert.doesNotMatch(installOutput, /serve\\.clisponsor\\.com/);
 
   const login = spawnSync(process.execPath, ["--import", loginMock, bin, "login", "carterjay@gmail.com", "--label=Work laptop"], {
     cwd: root,
@@ -181,7 +208,7 @@ globalThis.fetch = async (url, options) => {
   assert.equal(capturedBody.metadata.hookInput, undefined);
   assert.equal(JSON.stringify(capturedBody).includes("do not capture this"), false);
 
-  run(["install"]);
+  run(["install"], { pathValue: testPath });
   const claudeSettings = readJson(path.join(home, ".claude", "settings.json"));
   assert.equal(claudeSettings.hooks.UserPromptSubmit.length, 2);
   assert.equal(
