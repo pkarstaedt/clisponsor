@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 
-const CONFIG_PATH = "__CLIADS_CONFIG_PATH__";
+const CONFIG_PATH = "__CLISPONSOR_CONFIG_PATH__";
 const HOOK_VERSION = "1.0.0";
 const EVENT = process.argv[2] || "UserPromptSubmit";
 const PLACEMENTS = {

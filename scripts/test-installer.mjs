@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-const bin = path.join(root, "bin", "agent-ads.mjs");
+const bin = path.join(root, "bin", "clisponsor.mjs");
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "clisponsor-hook-test-"));
 
 function runRaw(args, options = {}) {
@@ -59,16 +59,24 @@ function runNode(args, options = {}) {
 try {
   const noLoginHome = fs.mkdtempSync(path.join(os.tmpdir(), "clisponsor-no-login-test-"));
   const help = run(["help"]);
-  assert.match(help, /login --token=<install-token>/);
-  assert.match(help, /login --token-file=<path>/);
-  assert.match(help, /Legacy compatibility:/);
-  assert.match(help, /legacy: clisponsor login --code=<install-token>/);
+  assert.match(help, /clisponsor add <install-token>/);
+  assert.match(help, /clisponsor add --token-file=<path>/);
+  assert.doesNotMatch(help, /Legacy compatibility:/);
+  assert.doesNotMatch(help, /clisponsor login/);
   assert.doesNotMatch(help, /device-code/);
-  assert.equal(help.indexOf("login --token=<install-token>") < help.indexOf("Legacy compatibility:"), true);
+  assert.doesNotMatch(help, /--serve-api/);
+  assert.doesNotMatch(help, /--backend-api/);
+  assert.doesNotMatch(help, /install codex/);
+  assert.doesNotMatch(help, /install claude/);
+  assert.doesNotMatch(help, /install gemini/);
+  assert.notEqual(help.indexOf("clisponsor add <install-token>"), -1);
 
   const statusWithoutLogin = runRaw(["status"], { expectedStatus: 1, testHome: noLoginHome });
-  assert.match(statusWithoutLogin.stderr, /clisponsor login --token=<install-token>/);
+  assert.match(statusWithoutLogin.stderr, /clisponsor add <install-token>/);
   assert.doesNotMatch(statusWithoutLogin.stderr, /--code/);
+
+  const addWithoutToken = runRaw(["add"], { expectedStatus: 1, testHome: noLoginHome });
+  assert.match(addWithoutToken.stderr, /Missing install token/);
   fs.rmSync(noLoginHome, { recursive: true, force: true });
 
   writeJson(path.join(home, ".clisponsor", "config.json"), {
@@ -84,11 +92,6 @@ try {
   assert.match(legacyLogin.stderr, /Legacy --code accepted as an install token alias/);
   assert.equal(readJson(path.join(home, ".clisponsor", "config.json")).installToken, "legacy-code");
 
-  const tokenFilePath = path.join(home, "install-token.txt");
-  fs.writeFileSync(tokenFilePath, "file-token\n", { mode: 0o600 });
-  run(["login", `--token-file=${tokenFilePath}`]);
-  assert.equal(readJson(path.join(home, ".clisponsor", "config.json")).installToken, "file-token");
-
   fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
   fs.writeFileSync(
     path.join(home, ".claude", "settings.json"),
@@ -101,19 +104,18 @@ try {
             },
           ],
         },
-        statusLine: { type: "command", command: `node ${path.join(home, ".clisponsor", "claude", "cliads_statusline.mjs")}` },
+        statusLine: { type: "command", command: `node ${path.join(home, ".clisponsor", "claude", "clisponsor_statusline.mjs")}` },
       },
       null,
       2,
     ),
   );
 
-  run([
-    "login",
-    "--token=test-token",
-    "--serve-api=https://serve.example.test/",
-    "--backend-api=https://backend.example.test/",
-  ]);
+  fs.mkdirSync(path.join(home, ".clisponsor", "claude"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".clisponsor", "claude", "cliads_claude_hook.mjs"), "");
+  fs.writeFileSync(path.join(home, ".clisponsor", "claude", "cliads_statusline.mjs"), "");
+
+  run(["add", "test-token", "--serve-api=https://serve.example.test/", "--backend-api=https://backend.example.test/"]);
   const config = readJson(path.join(home, ".clisponsor", "config.json"));
   assert.equal(config.installToken, "test-token");
   assert.equal(config.serveBaseUrl, "https://serve.example.test");
@@ -126,8 +128,7 @@ try {
   assert.equal(doctor.loggedIn, true);
   assert.equal(doctor.network.skipped, true);
 
-  run(["install", "codex"]);
-  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-plugin", "scripts", "cliads_codex_hook.mjs")), true);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-plugin", "scripts", "clisponsor_codex_hook.mjs")), true);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-marketplace", "plugins", "clisponsor")), true);
 
   const capturePath = path.join(home, "captured-fetch.json");
@@ -143,7 +144,7 @@ globalThis.fetch = async (url, options) => {
 };
 `,
   );
-  const codexHook = path.join(home, ".clisponsor", "codex-plugin", "scripts", "cliads_codex_hook.mjs");
+  const codexHook = path.join(home, ".clisponsor", "codex-plugin", "scripts", "clisponsor_codex_hook.mjs");
   const hookRun = runNode(["--import", importPath, codexHook, "UserPromptSubmit"], {
     input: JSON.stringify({ prompt: "hello" }),
     env: { CLISPONSOR_CAPTURE_PATH: capturePath },
@@ -170,28 +171,27 @@ globalThis.fetch = async (url, options) => {
   const signature = crypto.createHmac("sha256", "test-token").update(canonical).digest("hex");
   assert.equal(capturedFetch.headers["x-clisponsor-signature"], `sha256=${signature}`);
 
-  run(["install", "claude"]);
-  run(["install", "claude"]);
+  run(["add", "test-token", "--serve-api=https://serve.example.test/", "--backend-api=https://backend.example.test/"]);
   const claudeSettings = readJson(path.join(home, ".claude", "settings.json"));
   assert.equal(claudeSettings.hooks.UserPromptSubmit.length, 2);
   assert.equal(
-    claudeSettings.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("cliads_claude_hook.mjs")).length,
+    claudeSettings.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("clisponsor_claude_hook.mjs")).length,
     1,
   );
   assert.equal(JSON.stringify(claudeSettings).includes("keep-me.mjs"), true);
-  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "claude", "cliads_claude_hook.mjs")), true);
-
-  run(["install", "gemini"]);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "claude", "clisponsor_claude_hook.mjs")), true);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "gemini", "clisponsor_gemini_hook.mjs")), true);
 
   run(["uninstall", "all", "--config"]);
   const cleanedSettings = readJson(path.join(home, ".claude", "settings.json"));
-  assert.equal(JSON.stringify(cleanedSettings).includes("cliads_claude_hook.mjs"), false);
-  assert.equal(JSON.stringify(cleanedSettings).includes("cliads_statusline.mjs"), false);
+  assert.equal(JSON.stringify(cleanedSettings).includes("clisponsor_claude_hook.mjs"), false);
+  assert.equal(JSON.stringify(cleanedSettings).includes("clisponsor_statusline.mjs"), false);
   assert.equal(JSON.stringify(cleanedSettings).includes("keep-me.mjs"), true);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-plugin")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-marketplace")), false);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "claude", "clisponsor_claude_hook.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "claude", "cliads_claude_hook.mjs")), false);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "claude", "cliads_statusline.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "gemini", "clisponsor_gemini_hook.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "config.json")), false);
 } finally {

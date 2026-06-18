@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"__CLIADS_HOOK_SCRIPT__\" SessionStart",
+            "command": "node \"__CLISPONSOR_HOOK_SCRIPT__\" SessionStart",
             "timeout": 5,
             "statusMessage": "Loading sponsor"
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"__CLIADS_HOOK_SCRIPT__\" UserPromptSubmit",
+            "command": "node \"__CLISPONSOR_HOOK_SCRIPT__\" UserPromptSubmit",
             "timeout": 5,
             "statusMessage": "Loading sponsor"
           }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"__CLIADS_HOOK_SCRIPT__\" Stop",
+            "command": "node \"__CLISPONSOR_HOOK_SCRIPT__\" Stop",
             "timeout": 5
           }
         ]

@@ -22,6 +22,11 @@ function argValue(name) {
   return arg ? arg.slice(prefix.length) : undefined;
 }
 
+function positionalArg(index) {
+  const value = process.argv[index];
+  return value && !value.startsWith("--") ? value : undefined;
+}
+
 function hasFlag(name) {
   return process.argv.includes(name);
 }
@@ -123,7 +128,7 @@ function chmodExecutable(file) {
 function isClisponsorCommand(value) {
   return (
     typeof value === "string" &&
-    (value.includes("cliads_claude_hook.mjs") ||
+    (value.includes("clisponsor_claude_hook.mjs") ||
       value.includes("clisponsor_gemini_hook.mjs") ||
       value.includes(`${path.sep}.clisponsor${path.sep}`) ||
       value.includes("/.clisponsor/") ||
@@ -203,9 +208,9 @@ function removeClaudeCommandHooks(settings) {
   return changed;
 }
 
-function login() {
+function writeLoginConfig() {
   const next = config();
-  const tokenArg = argValue("--token");
+  const tokenArg = argValue("--token") || (["add", "join"].includes(process.argv[2]) ? positionalArg(3) : undefined);
   const tokenFileArg = argValue("--token-file");
   const codeArg = argValue("--code");
   const legacyApiArg = argValue("--api");
@@ -226,8 +231,18 @@ function login() {
   if (backendApiArg) next.backendBaseUrl = normalizeBaseUrl(backendApiArg);
   next.apiBaseUrl = next.serveBaseUrl;
 
+  if (["add", "join"].includes(process.argv[2]) && !next.installToken) {
+    console.error("Missing install token. Run: clisponsor add <install-token>");
+    process.exit(1);
+  }
+
   writeJson(CONFIG_PATH, next);
   console.log(`Wrote ${CONFIG_PATH}`);
+  return next;
+}
+
+function login() {
+  writeLoginConfig();
 }
 
 function installCodex() {
@@ -235,12 +250,12 @@ function installCodex() {
   const pluginRoot = path.join(CONFIG_DIR, "codex-plugin");
   copyDir(path.join(ROOT, "templates", "codex-plugin"), pluginRoot);
   patchFile(path.join(pluginRoot, "hooks", "hooks.json"), {
-    "__CLIADS_HOOK_SCRIPT__": path.join(pluginRoot, "scripts", "cliads_codex_hook.mjs"),
+    "__CLISPONSOR_HOOK_SCRIPT__": path.join(pluginRoot, "scripts", "clisponsor_codex_hook.mjs"),
   });
-  patchFile(path.join(pluginRoot, "scripts", "cliads_codex_hook.mjs"), {
-    "__CLIADS_CONFIG_PATH__": CONFIG_PATH,
+  patchFile(path.join(pluginRoot, "scripts", "clisponsor_codex_hook.mjs"), {
+    "__CLISPONSOR_CONFIG_PATH__": CONFIG_PATH,
   });
-  chmodExecutable(path.join(pluginRoot, "scripts", "cliads_codex_hook.mjs"));
+  chmodExecutable(path.join(pluginRoot, "scripts", "clisponsor_codex_hook.mjs"));
 
   const marketplaceRoot = path.join(CONFIG_DIR, "codex-marketplace");
   const marketplacePath = path.join(marketplaceRoot, ".agents", "plugins", "marketplace.json");
@@ -264,16 +279,21 @@ function installCodex() {
   try {
     execFileSync("codex", ["plugin", "marketplace", "add", marketplaceRoot], { stdio: "ignore" });
   } catch {}
-  console.log(`Codex plugin staged. Serve API: ${cfg.serveBaseUrl}`);
-  console.log("Run: codex plugin add clisponsor@clisponsor-local");
+  try {
+    execFileSync("codex", ["plugin", "add", "clisponsor@clisponsor-local"], { stdio: "ignore" });
+    console.log("Codex plugin installed.");
+  } catch {
+    console.log("Codex plugin staged. If Codex is installed, run: codex plugin add clisponsor@clisponsor-local");
+  }
+  console.log(`Codex Serve API: ${cfg.serveBaseUrl}`);
 }
 
 function installClaude() {
   const cfg = config();
   const claudeDir = path.join(CONFIG_DIR, "claude");
-  const installedHook = path.join(claudeDir, "cliads_claude_hook.mjs");
+  const installedHook = path.join(claudeDir, "clisponsor_claude_hook.mjs");
   fs.mkdirSync(claudeDir, { recursive: true });
-  fs.copyFileSync(path.join(ROOT, "templates", "claude", "cliads_claude_hook.mjs"), installedHook);
+  fs.copyFileSync(path.join(ROOT, "templates", "claude", "clisponsor_claude_hook.mjs"), installedHook);
   chmodExecutable(installedHook);
 
   const settingsPath = path.join(HOME, ".claude", "settings.json");
@@ -329,6 +349,17 @@ function installGemini() {
   console.log(`Gemini hook script written: ${hookPath}`);
   console.log(`Configure Gemini to run: node ${JSON.stringify(hookPath)} StartTurn`);
   console.log(`Serve API: ${cfg.serveBaseUrl}`);
+}
+
+function installAll() {
+  installCodex();
+  installClaude();
+  installGemini();
+}
+
+function add() {
+  writeLoginConfig();
+  installAll();
 }
 
 function uninstallCodex() {
@@ -390,7 +421,7 @@ async function fetchProbe(url, headers = {}) {
 async function status() {
   const cfg = config();
   if (!cfg.installToken) {
-    console.error("Not logged in. Run: clisponsor login --token=<install-token>");
+    console.error("Not set up. Run: clisponsor add <install-token>");
     process.exit(1);
   }
   const res = await fetch(`${cfg.backendBaseUrl}/v1/publisher/stats`, {
@@ -414,7 +445,7 @@ async function doctor() {
     installed: {
       codexPluginStaged: fs.existsSync(path.join(CONFIG_DIR, "codex-marketplace", "plugins", "clisponsor")),
       claudeSettings: fs.existsSync(path.join(HOME, ".claude", "settings.json")),
-      claudeHookScript: fs.existsSync(path.join(CONFIG_DIR, "claude", "cliads_claude_hook.mjs")),
+      claudeHookScript: fs.existsSync(path.join(CONFIG_DIR, "claude", "clisponsor_claude_hook.mjs")),
       geminiHookScript: fs.existsSync(path.join(CONFIG_DIR, "gemini", "clisponsor_gemini_hook.mjs")),
     },
     network: {},
@@ -457,25 +488,20 @@ async function doctor() {
 
 function help() {
   console.log(`clisponsor commands:
-  clisponsor login --token=<install-token> [--serve-api=<url>] [--backend-api=<url>]
-  clisponsor login --token-file=<path> [--serve-api=<url>] [--backend-api=<url>]
-  clisponsor install codex
-  clisponsor install claude
-  clisponsor install gemini
-  clisponsor uninstall [codex|claude|gemini|all] [--config]
+  clisponsor add <install-token>
+  clisponsor add --token-file=<path>
+  clisponsor uninstall [--config]
   clisponsor status
   clisponsor doctor [--json] [--skip-network]
-
-Legacy compatibility:
-  legacy: clisponsor login --code=<install-token> [--serve-api=<url>] [--backend-api=<url>]
-    Accepted as an install token alias; prefer --token for new installs.
 
 Automation:
   Use --token-file so install tokens do not appear in process argv.`);
 }
 
 const command = process.argv[2] || "help";
-if (command === "login" || command === "configure") login();
+if (command === "add" || command === "join") add();
+else if (command === "login" || command === "configure") login();
+else if (command === "install" && (!process.argv[3] || process.argv[3] === "all")) installAll();
 else if (command === "install" && process.argv[3] === "codex") installCodex();
 else if (command === "install" && process.argv[3] === "claude") installClaude();
 else if (command === "install" && process.argv[3] === "gemini") installGemini();

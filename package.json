@@ -7,16 +7,15 @@
     "node": ">=20"
   },
   "bin": {
-    "clisponsor": "./bin/agent-ads.mjs"
+    "clisponsor": "./bin/clisponsor.mjs"
   },
   "scripts": {
-    "check": "node --check bin/agent-ads.mjs && node --check templates/codex-plugin/scripts/cliads_codex_hook.mjs && node --check templates/claude/cliads_claude_hook.mjs && node --check templates/claude/cliads_statusline.mjs && npm run test",
+    "check": "node --check bin/clisponsor.mjs && node --check templates/codex-plugin/scripts/clisponsor_codex_hook.mjs && node --check templates/claude/clisponsor_claude_hook.mjs && node --check templates/claude/clisponsor_statusline.mjs && npm run test",
     "test": "node scripts/test-installer.mjs",
     "pack:check": "npm pack --dry-run"
   },
   "files": [
     "bin/",
-    "scripts/",
     "templates/"
   ],
   "license": "UNLICENSED"

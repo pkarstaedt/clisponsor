@@ -4,26 +4,20 @@ Hook package codebase for the `clisponsor` installer and Codex, Claude Code, and
 
 This codebase owns local installation, config, request signing, diagnostics, and hook adapters. It must not contain public website, dashboard app, API account, or ad-serving server code.
 
-Current state: authoritative public package source. The retired legacy installer notes are archived under `wiki/legacy/cliads-network/installer.md` in the workspace.
+Current state: authoritative public package source. Retired legacy installer notes are archived under `wiki/legacy` in the workspace.
 
 ## Commands
 
 ```bash
-npx clisponsor login --token=<install-token>
-npx clisponsor install codex
-npx clisponsor install claude
-npx clisponsor install gemini
+npx clisponsor add <install-token>
 npx clisponsor doctor --json
 npx clisponsor uninstall all
 ```
 
-`login` writes `~/.clisponsor/config.json`. The hook-facing serve API and account/stats backend API are configured separately:
+`add` writes `~/.clisponsor/config.json` and installs the CLIsponsor hooks/plugin for supported local tools in one run.
 
 ```bash
-npx clisponsor login \
-  --token=<install-token> \
-  --serve-api=https://serve.clisponsor.com \
-  --backend-api=https://backend.clisponsor.com
+npx clisponsor add <install-token>
 ```
 
 Environment defaults:
