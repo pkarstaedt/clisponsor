@@ -105,6 +105,7 @@ globalThis.fetch = async (url, options) => {
         email: "carterjay@gmail.com",
         user_id: "14825286-e30f-400c-a95e-03e5c59239e0",
         device_code: "sentence-tiger-wonder",
+        device_secret: "cls_dev_test-secret",
         label: "Work laptop"
       };
     }
@@ -134,6 +135,7 @@ globalThis.fetch = async (url, options) => {
   assert.equal(config.email, "carterjay@gmail.com");
   assert.equal(config.userId, "14825286-e30f-400c-a95e-03e5c59239e0");
   assert.equal(config.deviceCode, "sentence-tiger-wonder");
+  assert.equal(config.deviceSecret, "cls_dev_test-secret");
   assert.equal(config.deviceLabel, "Work laptop");
   assert.equal(config.installToken, undefined);
 
@@ -169,7 +171,7 @@ globalThis.fetch = async (url, options) => {
   const capturedHook = readJson(hookCapture);
   const capturedBody = JSON.parse(capturedHook.body);
   assert.equal(capturedHook.url, "https://serve.clisponsor.com/v1/ads/serve");
-  assert.equal(capturedHook.headers.authorization, undefined);
+  assert.equal(capturedHook.headers.authorization, "Bearer cls_dev_test-secret");
   assert.equal(capturedHook.headers["x-clisponsor-signature"], undefined);
   assert.equal(capturedBody.user_id, "14825286-e30f-400c-a95e-03e5c59239e0");
   assert.equal(capturedBody.device_code, "sentence-tiger-wonder");

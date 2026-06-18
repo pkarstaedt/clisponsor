@@ -10,7 +10,7 @@ const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".clisponsor", "c
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
 
 try {
-  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode) process.exit(0);
+  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
   const body = {
     user_id: cfg.userId,
     device_code: cfg.deviceCode,
@@ -24,6 +24,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "authorization": `Bearer ${cfg.deviceSecret}`,
       "x-clisponsor-hook-version": HOOK_VERSION,
     },
     body: JSON.stringify(body),

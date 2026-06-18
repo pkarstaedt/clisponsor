@@ -28,7 +28,7 @@ const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
 await readStdin();
 
 try {
-  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode) process.exit(0);
+  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
   const placement = PLACEMENTS[EVENT] || "StartTurn";
   const body = {
     user_id: cfg.userId,
@@ -43,6 +43,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "authorization": `Bearer ${cfg.deviceSecret}`,
       "x-clisponsor-hook-version": HOOK_VERSION,
     },
     body: JSON.stringify(body),

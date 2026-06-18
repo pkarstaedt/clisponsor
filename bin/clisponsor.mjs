@@ -102,6 +102,7 @@ function config() {
     email: raw.email || "",
     userId: raw.userId || raw.user_id || "",
     deviceCode: raw.deviceCode || raw.device_code || "",
+    deviceSecret: raw.deviceSecret || raw.device_secret || "",
     deviceLabel: raw.deviceLabel || raw.device_label || raw.label || "",
   };
 }
@@ -249,9 +250,10 @@ async function registerDevice() {
   next.email = payload.email || email;
   next.userId = payload.user_id || payload.userId;
   next.deviceCode = payload.device_code || payload.deviceCode;
+  next.deviceSecret = payload.device_secret || payload.deviceSecret || "";
   next.deviceLabel = payload.label || labelArg || next.deviceLabel || "";
-  if (!next.userId || !next.deviceCode) {
-    console.error("CLIsponsor login failed: backend response did not include user_id and device_code.");
+  if (!next.userId || !next.deviceCode || !next.deviceSecret) {
+    console.error("CLIsponsor login failed: backend response did not include user_id, device_code, and device_secret.");
     process.exit(1);
   }
   writeJson(CONFIG_PATH, next);
@@ -334,13 +336,14 @@ const event = process.argv[2] || "StartTurn";
 const placements = { SessionStart: "StartSession", UserPromptSubmit: "StartTurn", Stop: "EndTurn", StartTurn: "StartTurn" };
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
 try {
-  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode) process.exit(0);
+  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
   const placement = placements[event] || event;
   const body = { user_id: cfg.userId, device_code: cfg.deviceCode, client: "Gemini", hook_event: event, placement, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)} } };
   const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "authorization": "Bearer " + cfg.deviceSecret,
       "x-clisponsor-hook-version": ${JSON.stringify(HOOK_VERSION)}
     },
     body: JSON.stringify(body)
@@ -436,6 +439,7 @@ async function status() {
     email: cfg.email,
     user_id: cfg.userId,
     device_code: cfg.deviceCode,
+    has_device_secret: Boolean(cfg.deviceSecret),
     label: cfg.deviceLabel || null,
     serveBaseUrl: cfg.serveBaseUrl,
     backendBaseUrl: cfg.backendBaseUrl,
@@ -453,6 +457,7 @@ async function doctor() {
     serveBaseUrl: cfg.serveBaseUrl,
     backendBaseUrl: cfg.backendBaseUrl,
     loggedIn: Boolean(cfg.userId && cfg.deviceCode),
+    hasDeviceSecret: Boolean(cfg.deviceSecret),
     email: cfg.email || null,
     userId: cfg.userId || null,
     deviceCode: cfg.deviceCode || null,
