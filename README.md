@@ -4,7 +4,7 @@ Hook package codebase for the `clisponsor` installer and Codex, Claude Code, and
 
 This codebase owns local installation, config, request signing, diagnostics, and hook adapters. It must not contain public website, dashboard app, API account, or ad-serving server code.
 
-Current state: seeded from `cliads-network/installer` as a transition scaffold. During the transition, keep both copies aligned or switch deployment/publishing to this codebase explicitly.
+Current state: authoritative public package source. The retired legacy installer notes are archived under `wiki/legacy/cliads-network/installer.md` in the workspace.
 
 ## Commands
 
