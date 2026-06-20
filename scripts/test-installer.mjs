@@ -332,7 +332,7 @@ globalThis.fetch = async (url, options) => {
     env: { CLISPONSOR_HOOK_CAPTURE_PATH: hookCapture },
   });
   assert.deepEqual(JSON.parse(antigravityHookRun.stdout), {
-    injectSteps: [{ ephemeralMessage: "[Sponsored] Test sponsor line" }],
+    injectSteps: [{ userMessage: "[Sponsored] Test sponsor line" }],
   });
   const capturedAntigravityHook = readJson(hookCapture);
   const capturedAntigravityBody = JSON.parse(capturedAntigravityHook.body);

@@ -466,7 +466,7 @@ try {
     const ad = await res.json();
     if (outputMode === "antigravity") {
       const payload = {};
-      if (ad.display_line) payload.injectSteps = [{ ephemeralMessage: sponsoredLine(ad.display_line) }];
+      if (ad.display_line) payload.injectSteps = [{ userMessage: sponsoredLine(ad.display_line) }];
       console.log(JSON.stringify(payload));
     } else if (ad.display_line) {
       console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
