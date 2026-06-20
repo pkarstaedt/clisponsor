@@ -15,6 +15,7 @@ const DEFAULT_SERVE_BASE_URL =
 const DEFAULT_BACKEND_BASE_URL = process.env.CLISPONSOR_BACKEND_BASE_URL || "https://backend.clisponsor.com";
 const HOOK_VERSION = "1.0.0";
 const NETWORK_TIMEOUT_MS = 3000;
+const ANTIGRAVITY_EVENTS = ["PreInvocation", "UserPromptSubmit", "PostInvocation", "Stop"];
 
 function argValue(name) {
   const prefix = `${name}=`;
@@ -157,15 +158,15 @@ function commandExists(command) {
 
 function isClisponsorCommand(value) {
   return (
-	    typeof value === "string" &&
-	    (value.includes("clisponsor_claude_hook.mjs") ||
-	      value.includes("clisponsor_gemini_hook.mjs") ||
-	      value.includes("clisponsor_antigravity_hook.mjs") ||
-	      value.includes(`${path.sep}.clisponsor${path.sep}`) ||
-	      value.includes("/.clisponsor/") ||
-	      value.includes("\\.clisponsor\\"))
-	  );
-	}
+    typeof value === "string" &&
+    (value.includes("clisponsor_claude_hook.mjs") ||
+      value.includes("clisponsor_gemini_hook.mjs") ||
+      value.includes("clisponsor_antigravity_hook.mjs") ||
+      value.includes(`${path.sep}.clisponsor${path.sep}`) ||
+      value.includes("/.clisponsor/") ||
+      value.includes("\\.clisponsor\\"))
+  );
+}
 
 function isClisponsorHookEntry(entry) {
   if (!isPlainObject(entry)) return false;
@@ -260,6 +261,29 @@ function removeClaudeCommandHooks(settings) {
   }
   if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
   return changed;
+}
+
+function setAntigravityCommandHooks(settings, hookPath) {
+  removeClaudeCommandHooks(settings);
+  settings.clisponsor = Object.fromEntries(
+    ANTIGRAVITY_EVENTS.map((eventName) => [
+      eventName,
+      [
+        {
+          type: "command",
+          command: `node ${JSON.stringify(hookPath)} ${eventName}`,
+          timeout: 5,
+        },
+      ],
+    ]),
+  );
+}
+
+function removeAntigravityCommandHooks(settings) {
+  const removedLegacyHooks = removeClaudeCommandHooks(settings);
+  const removedNativeHooks = Object.hasOwn(settings, "clisponsor");
+  if (removedNativeHooks) delete settings.clisponsor;
+  return removedLegacyHooks || removedNativeHooks;
 }
 
 async function registerDevice() {
@@ -462,10 +486,7 @@ function installAntigravity() {
 
   const hooksPath = path.join(HOME, ".gemini", "config", "hooks.json");
   const hooksConfig = readEditableJson(hooksPath, {});
-  addGeminiCommandHook(hooksConfig, "PreInvocation", "*", `node ${JSON.stringify(hookPath)} PreInvocation`);
-  addGeminiCommandHook(hooksConfig, "UserPromptSubmit", "*", `node ${JSON.stringify(hookPath)} UserPromptSubmit`);
-  addGeminiCommandHook(hooksConfig, "PostInvocation", "*", `node ${JSON.stringify(hookPath)} PostInvocation`);
-  addGeminiCommandHook(hooksConfig, "Stop", "*", `node ${JSON.stringify(hookPath)} Stop`);
+  setAntigravityCommandHooks(hooksConfig, hookPath);
   writeJson(hooksPath, hooksConfig);
   console.log(`Updated ${hooksPath}`);
   console.log("Antigravity CLI hook installed.");
@@ -528,7 +549,7 @@ function uninstallGemini() {
 function uninstallAntigravity() {
   const hooksPath = path.join(HOME, ".gemini", "config", "hooks.json");
   const hooksConfig = readEditableJson(hooksPath, {});
-  if (removeClaudeCommandHooks(hooksConfig)) {
+  if (removeAntigravityCommandHooks(hooksConfig)) {
     writeJson(hooksPath, hooksConfig);
     console.log(`Removed CLIsponsor hooks from ${hooksPath}`);
   } else {
