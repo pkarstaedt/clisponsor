@@ -407,11 +407,12 @@ function agentHookSource(client, options = {}) {
   return `#!/usr/bin/env node
 import fs from "node:fs";
 import crypto from "node:crypto";
-const cfg = JSON.parse(fs.readFileSync(${JSON.stringify(CONFIG_PATH)}, "utf8"));
 const event = process.argv[2] || "BeforeAgent";
 const outputMode = ${JSON.stringify(outputMode)};
 const placements = { SessionStart: "StartSession", PreInvocation: "StartTurn", BeforeAgent: "StartTurn", UserPromptSubmit: "StartTurn", PreToolUse: "StartTurn", AfterAgent: "EndTurn", PostInvocation: "EndTurn", Stop: "EndTurn", StartTurn: "StartTurn" };
-const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
+function writeNoop() {
+  if (outputMode === "antigravity") console.log(JSON.stringify({}));
+}
 function sponsoredLine(line) {
   return "[Sponsored] " + line;
 }
@@ -427,11 +428,26 @@ let hookInput = {};
 try {
   hookInput = hookInputRaw.trim() ? JSON.parse(hookInputRaw) : {};
 } catch {}
+let cfg = {};
 try {
-  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
+  cfg = JSON.parse(fs.readFileSync(${JSON.stringify(CONFIG_PATH)}, "utf8"));
+} catch {
+  writeNoop();
+  process.exit(0);
+}
+const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
+try {
+  if (outputMode === "antigravity" && event !== "PreInvocation") {
+    writeNoop();
+    process.exit(0);
+  }
+  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) {
+    writeNoop();
+    process.exit(0);
+  }
   if (outputMode === "antigravity") {
     if (event === "PreInvocation" && Number(hookInput.invocationNum || 1) > 1) {
-      console.log(JSON.stringify({}));
+      writeNoop();
       process.exit(0);
     }
   }
@@ -455,8 +471,11 @@ try {
     } else if (ad.display_line) {
       console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
     }
+  } else {
+    writeNoop();
   }
 } catch {
+  writeNoop();
   process.exit(0);
 }
 `;

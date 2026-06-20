@@ -58,10 +58,10 @@ function writeJson(file, value) {
 }
 
 function runNode(args, options = {}) {
-  const { expectedStatus = 0, input = "", env = {} } = options;
+  const { expectedStatus = 0, input = "", env = {}, testHome = home } = options;
   const result = spawnSync(process.execPath, args, {
     cwd: root,
-    env: { ...process.env, HOME: home, ...env },
+    env: { ...process.env, HOME: testHome, ...env },
     input,
     encoding: "utf8",
   });
@@ -350,6 +350,13 @@ globalThis.fetch = async (url, options) => {
   });
   assert.deepEqual(JSON.parse(antigravityInternalInvocationRun.stdout), {});
   assert.equal(fs.existsSync(hookCapture), false);
+  const brokenAntigravityConfig = readJson(path.join(home, ".clisponsor", "config.json"));
+  writeJson(path.join(home, ".clisponsor", "config.json"), { ...brokenAntigravityConfig, deviceSecret: "" });
+  const antigravityNoLoginRun = runNode([antigravityHook, "PreInvocation"], {
+    input: JSON.stringify({ invocationNum: 1 }),
+  });
+  assert.deepEqual(JSON.parse(antigravityNoLoginRun.stdout), {});
+  writeJson(path.join(home, ".clisponsor", "config.json"), brokenAntigravityConfig);
   const antigravityHooks = readJson(path.join(home, ".gemini", "config", "hooks.json"));
   assert.equal(JSON.stringify(antigravityHooks).includes("keep-antigravity.mjs"), true);
   assert.equal(JSON.stringify(antigravityHooks.hooks || {}).includes("clisponsor_antigravity_hook.mjs"), false);
