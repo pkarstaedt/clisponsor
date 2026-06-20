@@ -1,6 +1,6 @@
 {
   "name": "clisponsor",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "CLIsponsor installer for Codex, Claude Code, and Gemini sponsored CLI placements.",
   "type": "module",
   "engines": {

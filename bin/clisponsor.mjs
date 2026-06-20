@@ -130,6 +130,23 @@ function chmodExecutable(file) {
 }
 
 function commandExists(command) {
+  const paths = String(process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  const extensions = process.platform === "win32" ? String(process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";") : [""];
+  for (const directory of paths) {
+    for (const extension of extensions) {
+      const candidate = path.join(directory, command + extension.toLowerCase());
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return true;
+      } catch {}
+      if (extension) {
+        try {
+          fs.accessSync(path.join(directory, command + extension.toUpperCase()), fs.constants.X_OK);
+          return true;
+        } catch {}
+      }
+    }
+  }
   try {
     execFileSync(command, ["--version"], { stdio: "ignore" });
     return true;
@@ -361,13 +378,15 @@ function installClaude() {
   console.log("Claude Code CLI hook installed.");
 }
 
-function agentHookSource(client) {
+function agentHookSource(client, options = {}) {
+  const outputMode = options.outputMode || "systemMessage";
   return `#!/usr/bin/env node
 import fs from "node:fs";
 import crypto from "node:crypto";
 const cfg = JSON.parse(fs.readFileSync(${JSON.stringify(CONFIG_PATH)}, "utf8"));
 const event = process.argv[2] || "BeforeAgent";
-const placements = { SessionStart: "StartSession", BeforeAgent: "StartTurn", AfterAgent: "EndTurn", StartTurn: "StartTurn" };
+const outputMode = ${JSON.stringify(outputMode)};
+const placements = { SessionStart: "StartSession", PreInvocation: "StartSession", BeforeAgent: "StartTurn", UserPromptSubmit: "StartTurn", PreToolUse: "StartTurn", AfterAgent: "EndTurn", PostInvocation: "EndTurn", Stop: "EndTurn", StartTurn: "StartTurn" };
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
 function sponsoredLine(line) {
   return "[Sponsored] " + line;
@@ -395,7 +414,13 @@ try {
   });
   if (res.ok) {
     const ad = await res.json();
-    if (ad.display_line) console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
+    if (outputMode === "antigravity") {
+      const payload = { decision: "allow" };
+      if (ad.display_line) payload.systemMessage = sponsoredLine(ad.display_line);
+      console.log(JSON.stringify(payload));
+    } else if (ad.display_line) {
+      console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
+    }
   }
 } catch {
   process.exit(0);
@@ -433,13 +458,14 @@ function installAntigravity() {
   const antigravityDir = path.join(CONFIG_DIR, "antigravity");
   fs.mkdirSync(antigravityDir, { recursive: true });
   const hookPath = path.join(antigravityDir, "clisponsor_antigravity_hook.mjs");
-  fs.writeFileSync(hookPath, agentHookSource("Antigravity"), { mode: 0o755 });
+  fs.writeFileSync(hookPath, agentHookSource("Antigravity", { outputMode: "antigravity" }), { mode: 0o755 });
 
   const hooksPath = path.join(HOME, ".gemini", "config", "hooks.json");
   const hooksConfig = readEditableJson(hooksPath, {});
-  addGeminiCommandHook(hooksConfig, "SessionStart", "startup", `node ${JSON.stringify(hookPath)} SessionStart`);
-  addGeminiCommandHook(hooksConfig, "BeforeAgent", "*", `node ${JSON.stringify(hookPath)} BeforeAgent`);
-  addGeminiCommandHook(hooksConfig, "AfterAgent", "*", `node ${JSON.stringify(hookPath)} AfterAgent`);
+  addGeminiCommandHook(hooksConfig, "PreInvocation", "*", `node ${JSON.stringify(hookPath)} PreInvocation`);
+  addGeminiCommandHook(hooksConfig, "UserPromptSubmit", "*", `node ${JSON.stringify(hookPath)} UserPromptSubmit`);
+  addGeminiCommandHook(hooksConfig, "PostInvocation", "*", `node ${JSON.stringify(hookPath)} PostInvocation`);
+  addGeminiCommandHook(hooksConfig, "Stop", "*", `node ${JSON.stringify(hookPath)} Stop`);
   writeJson(hooksPath, hooksConfig);
   console.log(`Updated ${hooksPath}`);
   console.log("Antigravity CLI hook installed.");

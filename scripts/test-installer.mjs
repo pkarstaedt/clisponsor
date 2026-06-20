@@ -317,37 +317,41 @@ globalThis.fetch = async (url, options) => {
   const antigravityInstallOutput = run(["install", "antigravity"], { pathValue: fakeBinWithAntigravity });
   assert.match(antigravityInstallOutput, /Antigravity CLI hook installed/);
   const antigravityHook = path.join(home, ".clisponsor", "antigravity", "clisponsor_antigravity_hook.mjs");
-  const antigravityHookRun = runNode(["--import", hookMock, antigravityHook, "BeforeAgent"], {
+  const antigravityHookRun = runNode(["--import", hookMock, antigravityHook, "UserPromptSubmit"], {
     input: JSON.stringify({ prompt: "do not capture this for antigravity" }),
     env: { CLISPONSOR_HOOK_CAPTURE_PATH: hookCapture },
   });
-  assert.deepEqual(JSON.parse(antigravityHookRun.stdout), { systemMessage: "[Sponsored] Test sponsor line" });
+  assert.deepEqual(JSON.parse(antigravityHookRun.stdout), { decision: "allow", systemMessage: "[Sponsored] Test sponsor line" });
   const capturedAntigravityHook = readJson(hookCapture);
   const capturedAntigravityBody = JSON.parse(capturedAntigravityHook.body);
   assert.equal(capturedAntigravityHook.url, "https://serve.clisponsor.com/v1/ads/serve");
   assert.equal(capturedAntigravityHook.headers.authorization, "Bearer cls_dev_test-secret");
   assert.equal(capturedAntigravityBody.client, "Antigravity");
-  assert.equal(capturedAntigravityBody.hook_event, "BeforeAgent");
+  assert.equal(capturedAntigravityBody.hook_event, "UserPromptSubmit");
   assert.equal(capturedAntigravityBody.placement, "StartTurn");
   assert.equal(JSON.stringify(capturedAntigravityBody).includes("do not capture this for antigravity"), false);
   const antigravityHooks = readJson(path.join(home, ".gemini", "config", "hooks.json"));
   assert.equal(JSON.stringify(antigravityHooks).includes("keep-antigravity.mjs"), true);
   assert.equal(
-    antigravityHooks.hooks.SessionStart.filter((entry) => JSON.stringify(entry).includes("clisponsor_antigravity_hook.mjs")).length,
+    antigravityHooks.hooks.PreInvocation.filter((entry) => JSON.stringify(entry).includes("clisponsor_antigravity_hook.mjs")).length,
     1,
   );
   assert.equal(
-    antigravityHooks.hooks.BeforeAgent.filter((entry) => JSON.stringify(entry).includes("clisponsor_antigravity_hook.mjs")).length,
+    antigravityHooks.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("clisponsor_antigravity_hook.mjs")).length,
     1,
   );
   assert.equal(
-    antigravityHooks.hooks.AfterAgent.filter((entry) => JSON.stringify(entry).includes("clisponsor_antigravity_hook.mjs")).length,
+    antigravityHooks.hooks.PostInvocation.filter((entry) => JSON.stringify(entry).includes("clisponsor_antigravity_hook.mjs")).length,
+    1,
+  );
+  assert.equal(
+    antigravityHooks.hooks.Stop.filter((entry) => JSON.stringify(entry).includes("clisponsor_antigravity_hook.mjs")).length,
     1,
   );
   run(["install", "agy"], { pathValue: fakeBinWithAntigravity });
   const antigravityHooksAfterReinstall = readJson(path.join(home, ".gemini", "config", "hooks.json"));
   assert.equal(
-    antigravityHooksAfterReinstall.hooks.BeforeAgent.filter((entry) => JSON.stringify(entry).includes("clisponsor_antigravity_hook.mjs")).length,
+    antigravityHooksAfterReinstall.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("clisponsor_antigravity_hook.mjs")).length,
     1,
   );
 
