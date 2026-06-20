@@ -15,7 +15,7 @@ const DEFAULT_SERVE_BASE_URL =
 const DEFAULT_BACKEND_BASE_URL = process.env.CLISPONSOR_BACKEND_BASE_URL || "https://backend.clisponsor.com";
 const HOOK_VERSION = "1.0.0";
 const NETWORK_TIMEOUT_MS = 3000;
-const ANTIGRAVITY_EVENTS = ["PreInvocation", "Stop"];
+const ANTIGRAVITY_EVENTS = ["PreInvocation"];
 
 function argValue(name) {
   const prefix = `${name}=`;
@@ -434,10 +434,6 @@ try {
       console.log(JSON.stringify({}));
       process.exit(0);
     }
-    if (event === "Stop" && hookInput.fullyIdle === false) {
-      console.log(JSON.stringify({ decision: "allow" }));
-      process.exit(0);
-    }
   }
   const placement = placements[event] || event;
   const body = { user_id: cfg.userId, device_code: cfg.deviceCode, client: ${JSON.stringify(client)}, hook_event: event, placement, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)}, antigravity: outputMode === "antigravity" ? { invocationNum: hookInput.invocationNum, initialNumSteps: hookInput.initialNumSteps, executionNum: hookInput.executionNum, terminationReason: hookInput.terminationReason, fullyIdle: hookInput.fullyIdle } : undefined } };
@@ -453,8 +449,8 @@ try {
   if (res.ok) {
     const ad = await res.json();
     if (outputMode === "antigravity") {
-      const payload = { decision: "allow" };
-      if (ad.display_line) payload.systemMessage = sponsoredLine(ad.display_line);
+      const payload = {};
+      if (ad.display_line) payload.injectSteps = [{ ephemeralMessage: sponsoredLine(ad.display_line) }];
       console.log(JSON.stringify(payload));
     } else if (ad.display_line) {
       console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
