@@ -15,7 +15,7 @@ const DEFAULT_SERVE_BASE_URL =
 const DEFAULT_BACKEND_BASE_URL = process.env.CLISPONSOR_BACKEND_BASE_URL || "https://backend.clisponsor.com";
 const HOOK_VERSION = "1.0.0";
 const NETWORK_TIMEOUT_MS = 3000;
-const ANTIGRAVITY_EVENTS = ["PreInvocation", "PostInvocation"];
+const ANTIGRAVITY_EVENTS = ["PreInvocation", "Stop"];
 
 function argValue(name) {
   const prefix = `${name}=`;
@@ -422,11 +422,25 @@ function readStdin() {
     process.stdin.on("end", () => resolve(data));
   });
 }
-await readStdin();
+const hookInputRaw = await readStdin();
+let hookInput = {};
+try {
+  hookInput = hookInputRaw.trim() ? JSON.parse(hookInputRaw) : {};
+} catch {}
 try {
   if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
+  if (outputMode === "antigravity") {
+    if (event === "PreInvocation" && Number(hookInput.invocationNum || 1) > 1) {
+      console.log(JSON.stringify({}));
+      process.exit(0);
+    }
+    if (event === "Stop" && hookInput.fullyIdle === false) {
+      console.log(JSON.stringify({ decision: "allow" }));
+      process.exit(0);
+    }
+  }
   const placement = placements[event] || event;
-  const body = { user_id: cfg.userId, device_code: cfg.deviceCode, client: ${JSON.stringify(client)}, hook_event: event, placement, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)} } };
+  const body = { user_id: cfg.userId, device_code: cfg.deviceCode, client: ${JSON.stringify(client)}, hook_event: event, placement, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)}, antigravity: outputMode === "antigravity" ? { invocationNum: hookInput.invocationNum, initialNumSteps: hookInput.initialNumSteps, executionNum: hookInput.executionNum, terminationReason: hookInput.terminationReason, fullyIdle: hookInput.fullyIdle } : undefined } };
   const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
     method: "POST",
     headers: {
