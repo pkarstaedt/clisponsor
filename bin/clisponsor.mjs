@@ -15,7 +15,7 @@ const DEFAULT_SERVE_BASE_URL =
 const DEFAULT_BACKEND_BASE_URL = process.env.CLISPONSOR_BACKEND_BASE_URL || "https://backend.clisponsor.com";
 const HOOK_VERSION = "1.0.0";
 const NETWORK_TIMEOUT_MS = 3000;
-const ANTIGRAVITY_EVENTS = ["PreInvocation", "UserPromptSubmit", "PostInvocation", "Stop"];
+const ANTIGRAVITY_EVENTS = ["PreInvocation", "PostInvocation"];
 
 function argValue(name) {
   const prefix = `${name}=`;
@@ -410,7 +410,7 @@ import crypto from "node:crypto";
 const cfg = JSON.parse(fs.readFileSync(${JSON.stringify(CONFIG_PATH)}, "utf8"));
 const event = process.argv[2] || "BeforeAgent";
 const outputMode = ${JSON.stringify(outputMode)};
-const placements = { SessionStart: "StartSession", PreInvocation: "StartSession", BeforeAgent: "StartTurn", UserPromptSubmit: "StartTurn", PreToolUse: "StartTurn", AfterAgent: "EndTurn", PostInvocation: "EndTurn", Stop: "EndTurn", StartTurn: "StartTurn" };
+const placements = { SessionStart: "StartSession", PreInvocation: "StartTurn", BeforeAgent: "StartTurn", UserPromptSubmit: "StartTurn", PreToolUse: "StartTurn", AfterAgent: "EndTurn", PostInvocation: "EndTurn", Stop: "EndTurn", StartTurn: "StartTurn" };
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
 function sponsoredLine(line) {
   return "[Sponsored] " + line;
