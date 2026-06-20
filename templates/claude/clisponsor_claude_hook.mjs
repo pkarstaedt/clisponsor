@@ -8,6 +8,25 @@ const HOOK_VERSION = "1.0.0";
 const event = process.argv[2] || "UserPromptSubmit";
 const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".clisponsor", "config.json"), "utf8"));
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
+const placements = {
+  SessionStart: "StartSession",
+  UserPromptSubmit: "StartTurn",
+  Stop: "EndTurn",
+};
+
+function readStdin() {
+  return new Promise((resolve) => {
+    let data = "";
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", () => resolve(data));
+  });
+}
+
+function sponsoredLine(line) {
+  return `[Sponsored] ${line}`;
+}
+
+await readStdin();
 
 try {
   if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
@@ -16,11 +35,11 @@ try {
     device_code: cfg.deviceCode,
     client: "ClaudeCode",
     hook_event: event,
-    placement: event === "SessionStart" ? "StartSession" : event === "Stop" ? "EndTurn" : "StartTurn",
+    placement: placements[event] || "StartTurn",
     idempotency_key: crypto.randomUUID(),
     metadata: { hookVersion: HOOK_VERSION },
   };
-  await fetch(`${serveBaseUrl}/v1/ads/serve`, {
+  const res = await fetch(`${serveBaseUrl}/v1/ads/serve`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -29,4 +48,9 @@ try {
     },
     body: JSON.stringify(body),
   });
-} catch {}
+  if (!res.ok) process.exit(0);
+  const ad = await res.json();
+  if (ad.display_line) console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
+} catch {
+  process.exit(0);
+}

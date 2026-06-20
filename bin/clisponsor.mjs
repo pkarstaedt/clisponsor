@@ -140,14 +140,15 @@ function commandExists(command) {
 
 function isClisponsorCommand(value) {
   return (
-    typeof value === "string" &&
-    (value.includes("clisponsor_claude_hook.mjs") ||
-      value.includes("clisponsor_gemini_hook.mjs") ||
-      value.includes(`${path.sep}.clisponsor${path.sep}`) ||
-      value.includes("/.clisponsor/") ||
-      value.includes("\\.clisponsor\\"))
-  );
-}
+	    typeof value === "string" &&
+	    (value.includes("clisponsor_claude_hook.mjs") ||
+	      value.includes("clisponsor_gemini_hook.mjs") ||
+	      value.includes("clisponsor_antigravity_hook.mjs") ||
+	      value.includes(`${path.sep}.clisponsor${path.sep}`) ||
+	      value.includes("/.clisponsor/") ||
+	      value.includes("\\.clisponsor\\"))
+	  );
+	}
 
 function isClisponsorHookEntry(entry) {
   if (!isPlainObject(entry)) return false;
@@ -186,6 +187,29 @@ function addClaudeCommandHook(settings, eventName, command) {
           command,
           timeout: 5,
           statusMessage: "Loading sponsor",
+        },
+      ],
+    },
+  ];
+  return true;
+}
+
+function addGeminiCommandHook(settings, eventName, matcher, command) {
+  if (!isPlainObject(settings.hooks)) settings.hooks = {};
+  const current = Array.isArray(settings.hooks[eventName]) ? settings.hooks[eventName] : [];
+  const exists = current.some((entry) => isClisponsorHookEntry(entry));
+  if (exists) return false;
+
+  settings.hooks[eventName] = [
+    ...current,
+    {
+      matcher,
+      hooks: [
+        {
+          name: "clisponsor",
+          type: "command",
+          command,
+          timeout: 5000,
         },
       ],
     },
@@ -276,6 +300,11 @@ async function login() {
 }
 
 function installCodex() {
+  if (!commandExists("codex")) {
+    console.log("Codex CLI not found. To enable CLIsponsor for Codex, install Codex CLI and rerun: npx clisponsor@latest install");
+    return;
+  }
+
   const pluginRoot = path.join(CONFIG_DIR, "codex-plugin");
   copyDir(path.join(ROOT, "templates", "codex-plugin"), pluginRoot);
   patchFile(path.join(pluginRoot, "hooks", "hooks.json"), {
@@ -305,28 +334,22 @@ function installCodex() {
       },
     ],
   });
-  try {
-    execFileSync("codex", ["plugin", "marketplace", "add", marketplaceRoot], { stdio: "ignore" });
-  } catch {}
-  try {
-    execFileSync("codex", ["plugin", "add", "clisponsor@clisponsor-local"], { stdio: "ignore" });
-    console.log("Codex CLI plugin installed.");
-  } catch {
-    console.log("Codex CLI plugin staged. After installing Codex CLI, rerun: npx clisponsor install");
-  }
+  execFileSync("codex", ["plugin", "marketplace", "add", marketplaceRoot], { stdio: "ignore" });
+  execFileSync("codex", ["plugin", "add", "clisponsor@clisponsor-local"], { stdio: "ignore" });
+  console.log("Codex CLI plugin installed.");
 }
 
 function installClaude() {
+  if (!commandExists("claude")) {
+    console.log("Claude Code CLI not found. To enable CLIsponsor for Claude Code, install Claude Code CLI and rerun: npx clisponsor@latest install");
+    return;
+  }
+
   const claudeDir = path.join(CONFIG_DIR, "claude");
   const installedHook = path.join(claudeDir, "clisponsor_claude_hook.mjs");
   fs.mkdirSync(claudeDir, { recursive: true });
   fs.copyFileSync(path.join(ROOT, "templates", "claude", "clisponsor_claude_hook.mjs"), installedHook);
   chmodExecutable(installedHook);
-
-  if (!commandExists("claude")) {
-    console.log("Claude Code CLI hook staged. After installing Claude Code CLI, rerun: npx clisponsor install");
-    return;
-  }
 
   const settingsPath = path.join(HOME, ".claude", "settings.json");
   const settings = readEditableJson(settingsPath, {});
@@ -338,18 +361,29 @@ function installClaude() {
   console.log("Claude Code CLI hook installed.");
 }
 
-function geminiHookSource() {
+function agentHookSource(client) {
   return `#!/usr/bin/env node
 import fs from "node:fs";
 import crypto from "node:crypto";
 const cfg = JSON.parse(fs.readFileSync(${JSON.stringify(CONFIG_PATH)}, "utf8"));
-const event = process.argv[2] || "StartTurn";
-const placements = { SessionStart: "StartSession", UserPromptSubmit: "StartTurn", Stop: "EndTurn", StartTurn: "StartTurn" };
+const event = process.argv[2] || "BeforeAgent";
+const placements = { SessionStart: "StartSession", BeforeAgent: "StartTurn", AfterAgent: "EndTurn", StartTurn: "StartTurn" };
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
+function sponsoredLine(line) {
+  return "[Sponsored] " + line;
+}
+function readStdin() {
+  return new Promise((resolve) => {
+    let data = "";
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", () => resolve(data));
+  });
+}
+await readStdin();
 try {
   if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
   const placement = placements[event] || event;
-  const body = { user_id: cfg.userId, device_code: cfg.deviceCode, client: "Gemini", hook_event: event, placement, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)} } };
+  const body = { user_id: cfg.userId, device_code: cfg.deviceCode, client: ${JSON.stringify(client)}, hook_event: event, placement, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)} } };
   const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
     method: "POST",
     headers: {
@@ -361,30 +395,74 @@ try {
   });
   if (res.ok) {
     const ad = await res.json();
-    if (ad.display_line) console.log(ad.display_line);
+    if (ad.display_line) console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
   }
-} catch {}
+} catch {
+  process.exit(0);
+}
 `;
 }
 
 function installGemini() {
+  if (!commandExists("gemini")) {
+    console.log("Gemini CLI not found. To enable CLIsponsor for Gemini, install Gemini CLI and rerun: npx clisponsor@latest install");
+    return;
+  }
+
   const geminiDir = path.join(CONFIG_DIR, "gemini");
   fs.mkdirSync(geminiDir, { recursive: true });
   const hookPath = path.join(geminiDir, "clisponsor_gemini_hook.mjs");
-  fs.writeFileSync(hookPath, geminiHookSource(), { mode: 0o755 });
-  if (commandExists("gemini")) {
-    console.log("Gemini CLI hook script staged.");
-    console.log("Gemini CLI does not expose a CLIsponsor auto-configuration target yet; configure it to run:");
-    console.log(`node ${JSON.stringify(hookPath)} StartTurn`);
-  } else {
-    console.log("Gemini CLI hook script staged. After installing Gemini CLI, rerun: npx clisponsor install");
+  fs.writeFileSync(hookPath, agentHookSource("Gemini"), { mode: 0o755 });
+
+  const settingsPath = path.join(HOME, ".gemini", "settings.json");
+  const settings = readEditableJson(settingsPath, {});
+  addGeminiCommandHook(settings, "SessionStart", "startup", `node ${JSON.stringify(hookPath)} SessionStart`);
+  addGeminiCommandHook(settings, "BeforeAgent", "*", `node ${JSON.stringify(hookPath)} BeforeAgent`);
+  addGeminiCommandHook(settings, "AfterAgent", "*", `node ${JSON.stringify(hookPath)} AfterAgent`);
+  writeJson(settingsPath, settings);
+  console.log(`Updated ${settingsPath}`);
+  console.log("Gemini CLI hook installed.");
+}
+
+function installAntigravity() {
+  if (!commandExists("agy")) {
+    console.log("Antigravity CLI not found. To enable CLIsponsor for Antigravity, install Antigravity CLI and rerun: npx clisponsor@latest install");
+    return;
   }
+
+  const antigravityDir = path.join(CONFIG_DIR, "antigravity");
+  fs.mkdirSync(antigravityDir, { recursive: true });
+  const hookPath = path.join(antigravityDir, "clisponsor_antigravity_hook.mjs");
+  fs.writeFileSync(hookPath, agentHookSource("Antigravity"), { mode: 0o755 });
+
+  const hooksPath = path.join(HOME, ".gemini", "config", "hooks.json");
+  const hooksConfig = readEditableJson(hooksPath, {});
+  addGeminiCommandHook(hooksConfig, "SessionStart", "startup", `node ${JSON.stringify(hookPath)} SessionStart`);
+  addGeminiCommandHook(hooksConfig, "BeforeAgent", "*", `node ${JSON.stringify(hookPath)} BeforeAgent`);
+  addGeminiCommandHook(hooksConfig, "AfterAgent", "*", `node ${JSON.stringify(hookPath)} AfterAgent`);
+  writeJson(hooksPath, hooksConfig);
+  console.log(`Updated ${hooksPath}`);
+  console.log("Antigravity CLI hook installed.");
 }
 
 function installAll() {
   installCodex();
   installClaude();
   installGemini();
+  installAntigravity();
+}
+
+function install() {
+  const target = process.argv[3] && !process.argv[3].startsWith("--") ? process.argv[3] : "all";
+  if (!["all", "codex", "claude", "gemini", "antigravity", "agy"].includes(target)) {
+    console.error("Unknown install target. Use: codex, claude, gemini, antigravity, or all.");
+    process.exit(1);
+  }
+  if (target === "all") installAll();
+  else if (target === "codex") installCodex();
+  else if (target === "claude") installClaude();
+  else if (target === "gemini") installGemini();
+  else installAntigravity();
 }
 
 function uninstallCodex() {
@@ -406,6 +484,14 @@ function uninstallClaude() {
 }
 
 function uninstallGemini() {
+  const settingsPath = path.join(HOME, ".gemini", "settings.json");
+  const settings = readEditableJson(settingsPath, {});
+  if (removeClaudeCommandHooks(settings)) {
+    writeJson(settingsPath, settings);
+    console.log(`Removed CLIsponsor hooks from ${settingsPath}`);
+  } else {
+    console.log("No CLIsponsor Gemini hooks found.");
+  }
   fs.rmSync(path.join(CONFIG_DIR, "gemini", "clisponsor_gemini_hook.mjs"), { force: true });
   try {
     fs.rmdirSync(path.join(CONFIG_DIR, "gemini"));
@@ -413,15 +499,32 @@ function uninstallGemini() {
   console.log("Removed Gemini hook script.");
 }
 
+function uninstallAntigravity() {
+  const hooksPath = path.join(HOME, ".gemini", "config", "hooks.json");
+  const hooksConfig = readEditableJson(hooksPath, {});
+  if (removeClaudeCommandHooks(hooksConfig)) {
+    writeJson(hooksPath, hooksConfig);
+    console.log(`Removed CLIsponsor hooks from ${hooksPath}`);
+  } else {
+    console.log("No CLIsponsor Antigravity hooks found.");
+  }
+  fs.rmSync(path.join(CONFIG_DIR, "antigravity", "clisponsor_antigravity_hook.mjs"), { force: true });
+  try {
+    fs.rmdirSync(path.join(CONFIG_DIR, "antigravity"));
+  } catch {}
+  console.log("Removed Antigravity hook script.");
+}
+
 function uninstall() {
   const target = process.argv[3] && !process.argv[3].startsWith("--") ? process.argv[3] : "all";
-  if (!["all", "codex", "claude", "gemini"].includes(target)) {
-    console.error("Unknown uninstall target. Use: codex, claude, gemini, or all.");
+  if (!["all", "codex", "claude", "gemini", "antigravity", "agy"].includes(target)) {
+    console.error("Unknown uninstall target. Use: codex, claude, gemini, antigravity, or all.");
     process.exit(1);
   }
   if (target === "all" || target === "codex") uninstallCodex();
   if (target === "all" || target === "claude") uninstallClaude();
   if (target === "all" || target === "gemini") uninstallGemini();
+  if (target === "all" || target === "antigravity" || target === "agy") uninstallAntigravity();
   if (hasFlag("--config")) {
     fs.rmSync(CONFIG_PATH, { force: true });
     console.log(`Removed ${CONFIG_PATH}`);
@@ -475,12 +578,13 @@ async function doctor() {
     email: cfg.email || null,
     userId: cfg.userId || null,
     deviceCode: cfg.deviceCode || null,
-    installed: {
-      codexPluginStaged: fs.existsSync(path.join(CONFIG_DIR, "codex-marketplace", "plugins", "clisponsor")),
-      claudeSettings: fs.existsSync(path.join(HOME, ".claude", "settings.json")),
-      claudeHookScript: fs.existsSync(path.join(CONFIG_DIR, "claude", "clisponsor_claude_hook.mjs")),
-      geminiHookScript: fs.existsSync(path.join(CONFIG_DIR, "gemini", "clisponsor_gemini_hook.mjs")),
-    },
+	    installed: {
+	      codexPluginStaged: fs.existsSync(path.join(CONFIG_DIR, "codex-marketplace", "plugins", "clisponsor")),
+	      claudeSettings: fs.existsSync(path.join(HOME, ".claude", "settings.json")),
+	      claudeHookScript: fs.existsSync(path.join(CONFIG_DIR, "claude", "clisponsor_claude_hook.mjs")),
+	      geminiHookScript: fs.existsSync(path.join(CONFIG_DIR, "gemini", "clisponsor_gemini_hook.mjs")),
+	      antigravityHookScript: fs.existsSync(path.join(CONFIG_DIR, "antigravity", "clisponsor_antigravity_hook.mjs")),
+	    },
     network: {},
   };
 
@@ -506,6 +610,7 @@ async function doctor() {
   console.log(`Claude settings: ${diagnostics.installed.claudeSettings ? "yes" : "no"}`);
   console.log(`Claude hook script: ${diagnostics.installed.claudeHookScript ? "yes" : "no"}`);
   console.log(`Gemini hook script: ${diagnostics.installed.geminiHookScript ? "yes" : "no"}`);
+  console.log(`Antigravity hook script: ${diagnostics.installed.antigravityHookScript ? "yes" : "no"}`);
   if (skipNetwork) {
     console.log("Network: skipped");
   } else {
@@ -516,9 +621,9 @@ async function doctor() {
 
 function help() {
   console.log(`clisponsor commands:
-  clisponsor install
+  clisponsor install [all|codex|claude|gemini|antigravity]
   clisponsor login <email> [--label=<device-label>]
-  clisponsor uninstall [--config]
+  clisponsor uninstall [all|codex|claude|gemini|antigravity] [--config]
   clisponsor status
   clisponsor doctor [--json] [--skip-network]
 
@@ -528,7 +633,7 @@ Environment:
 
 const command = process.argv[2] || "help";
 if (command === "login") await login();
-else if (command === "install" && (!process.argv[3] || process.argv[3] === "all")) installAll();
+else if (command === "install") install();
 else if (command === "uninstall") uninstall();
 else if (command === "status") await status();
 else if (command === "doctor") await doctor();

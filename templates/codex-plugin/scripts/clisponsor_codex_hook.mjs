@@ -23,6 +23,10 @@ function readConfig() {
   return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
 }
 
+function sponsoredLine(line) {
+  return `[Sponsored] ${line}`;
+}
+
 const cfg = readConfig();
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
 await readStdin();
@@ -50,7 +54,7 @@ try {
   });
   if (!res.ok) process.exit(0);
   const ad = await res.json();
-  if (ad.display_line) console.log(JSON.stringify({ systemMessage: ad.display_line }));
+  if (ad.display_line) console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
 } catch {
   process.exit(0);
 }

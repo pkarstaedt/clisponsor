@@ -1,13 +1,13 @@
 {
   "name": "clisponsor",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "CLIsponsor installer for Codex, Claude Code, and Gemini sponsored CLI placements.",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "bin": {
-    "clisponsor": "./bin/clisponsor.mjs"
+    "clisponsor": "bin/clisponsor.mjs"
   },
   "scripts": {
     "check": "node --check bin/clisponsor.mjs && node --check templates/codex-plugin/scripts/clisponsor_codex_hook.mjs && node --check templates/claude/clisponsor_claude_hook.mjs && node --check templates/claude/clisponsor_statusline.mjs && npm run test",
