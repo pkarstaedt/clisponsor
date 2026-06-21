@@ -157,15 +157,17 @@ globalThis.fetch = async (url, options) => {
   const testPath = fakeBin;
 
   const installOutput = run(["install"], { pathValue: testPath });
-  assert.match(installOutput, /Codex CLI not found/);
-  assert.match(installOutput, /Claude Code CLI hook installed/);
-  assert.match(installOutput, /Gemini CLI not found/);
-  assert.match(installOutput, /Antigravity CLI not found/);
-  assert.match(installOutput, /OpenCode CLI not found/);
-  assert.match(installOutput, /Pi CLI not found/);
-  assert.match(installOutput, /GitHub Copilot CLI not found/);
-  assert.match(installOutput, /Qwen Code CLI not found/);
+  assert.match(installOutput, /CLIsponsor installer/);
+  assert.match(installOutput, /Codex CLI .*not found/);
+  assert.match(installOutput, /Claude Code CLI .*installed/);
+  assert.match(installOutput, /Gemini CLI .*not found/);
+  assert.match(installOutput, /Antigravity CLI .*not found/);
+  assert.match(installOutput, /OpenCode CLI .*not found/);
+  assert.match(installOutput, /Pi Coding Agent .*not found/);
+  assert.match(installOutput, /GitHub Copilot CLI .*not found/);
+  assert.match(installOutput, /Qwen Code .*not found/);
   assert.doesNotMatch(installOutput, /Codex CLI plugin installed/);
+  assert.doesNotMatch(installOutput, /Claude Code CLI hook installed/);
   assert.doesNotMatch(installOutput, /Gemini CLI hook installed/);
   assert.doesNotMatch(installOutput, /Antigravity CLI hook installed/);
   assert.doesNotMatch(installOutput, /OpenCode CLI plugin installed/);
@@ -234,7 +236,7 @@ globalThis.fetch = async (url, options) => {
   );
   const fakeBinWithCodex = makeFakeBin(["codex"]);
   const codexInstallOutput = run(["install", "codex"], { pathValue: fakeBinWithCodex });
-  assert.match(codexInstallOutput, /Codex CLI plugin installed/);
+  assert.match(codexInstallOutput, /Codex CLI .*installed/);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-plugin", "scripts", "clisponsor_codex_hook.mjs")), true);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-marketplace", "plugins", "clisponsor")), true);
   const codexHook = path.join(home, ".clisponsor", "codex-plugin", "scripts", "clisponsor_codex_hook.mjs");
@@ -297,7 +299,7 @@ globalThis.fetch = async (url, options) => {
   const fakeBinWithGemini = makeFakeBin(["claude", "gemini"]);
   const testPathWithGemini = fakeBinWithGemini;
   const geminiInstallOutput = run(["install", "gemini"], { pathValue: testPathWithGemini });
-  assert.match(geminiInstallOutput, /Gemini CLI hook installed/);
+  assert.match(geminiInstallOutput, /Gemini CLI .*installed/);
   assert.doesNotMatch(geminiInstallOutput, /configure it to run/);
   const geminiHook = path.join(home, ".clisponsor", "gemini", "clisponsor_gemini_hook.mjs");
   const geminiHookRun = runNode(["--import", hookMock, geminiHook, "BeforeAgent"], {
@@ -360,7 +362,7 @@ globalThis.fetch = async (url, options) => {
   });
   const fakeBinWithAntigravity = makeFakeBin(["agy"]);
   const antigravityInstallOutput = run(["install", "antigravity"], { pathValue: fakeBinWithAntigravity });
-  assert.match(antigravityInstallOutput, /Antigravity CLI hook installed/);
+  assert.match(antigravityInstallOutput, /Antigravity CLI .*installed/);
   const antigravityHook = path.join(home, ".clisponsor", "antigravity", "clisponsor_antigravity_hook.mjs");
   const antigravityHookRun = runNode(["--import", hookMock, antigravityHook, "PreInvocation"], {
     input: JSON.stringify({ prompt: "do not capture this for antigravity", invocationNum: 1, initialNumSteps: 1 }),
@@ -412,7 +414,7 @@ globalThis.fetch = async (url, options) => {
 
   const fakeBinWithOpenCode = makeFakeBin(["opencode"]);
   const opencodeInstallOutput = run(["install", "opencode"], { pathValue: fakeBinWithOpenCode });
-  assert.match(opencodeInstallOutput, /OpenCode CLI plugin installed/);
+  assert.match(opencodeInstallOutput, /OpenCode CLI .*installed/);
   const opencodePlugin = path.join(home, ".config", "opencode", "plugins", "clisponsor_opencode_plugin.js");
   assert.equal(fs.existsSync(opencodePlugin), true);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "opencode", "clisponsor_opencode_plugin.js")), true);
@@ -462,7 +464,7 @@ fs.writeFileSync(process.env.CLISPONSOR_OPENCODE_PROBE_PATH, JSON.stringify({ ca
 
   const fakeBinWithPi = makeFakeBin(["pi"]);
   const piInstallOutput = run(["install", "pi"], { pathValue: fakeBinWithPi });
-  assert.match(piInstallOutput, /Pi CLI extension installed/);
+  assert.match(piInstallOutput, /Pi Coding Agent .*installed/);
   const piExtension = path.join(home, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts");
   assert.equal(fs.existsSync(piExtension), true);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "pi", "clisponsor_pi_extension.ts")), true);
@@ -518,7 +520,7 @@ fs.writeFileSync(process.env.CLISPONSOR_PI_PROBE_PATH, JSON.stringify({ calls, n
 
   const fakeBinWithCopilot = makeFakeBin(["copilot"]);
   const copilotInstallOutput = run(["install", "copilot"], { pathValue: fakeBinWithCopilot });
-  assert.match(copilotInstallOutput, /GitHub Copilot CLI hook installed/);
+  assert.match(copilotInstallOutput, /GitHub Copilot CLI .*installed/);
   const copilotHooksPath = path.join(home, ".copilot", "hooks", "clisponsor.json");
   const copilotHook = path.join(home, ".clisponsor", "copilot", "clisponsor_copilot_hook.mjs");
   assert.equal(fs.existsSync(copilotHooksPath), true);
@@ -566,7 +568,7 @@ fs.writeFileSync(process.env.CLISPONSOR_PI_PROBE_PATH, JSON.stringify({ calls, n
   });
   const fakeBinWithQwen = makeFakeBin(["qwen"]);
   const qwenInstallOutput = run(["install", "qwen"], { pathValue: fakeBinWithQwen });
-  assert.match(qwenInstallOutput, /Qwen Code CLI hook installed/);
+  assert.match(qwenInstallOutput, /Qwen Code .*installed/);
   const qwenHook = path.join(home, ".clisponsor", "qwen", "clisponsor_qwen_hook.mjs");
   assert.equal(fs.existsSync(qwenHook), true);
   const qwenSettings = readJson(path.join(home, ".qwen", "settings.json"));

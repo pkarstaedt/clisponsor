@@ -170,6 +170,69 @@ function qwenHome() {
   return process.env.QWEN_HOME || path.join(HOME, ".qwen");
 }
 
+function colorEnabled() {
+  return Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+}
+
+function color(value, code) {
+  if (!colorEnabled()) return value;
+  return `\u001b[${code}m${value}\u001b[0m`;
+}
+
+function green(value) {
+  return color(value, "32");
+}
+
+function red(value) {
+  return color(value, "31");
+}
+
+function cyan(value) {
+  return color(value, "36");
+}
+
+function dim(value) {
+  return color(value, "2");
+}
+
+function bold(value) {
+  return color(value, "1");
+}
+
+function targetSuffix(spec) {
+  return dim(`(${spec.command})`);
+}
+
+function installLine(symbol, spec, message, colorFn = (value) => value) {
+  console.log(`${colorFn(symbol)} ${spec.label} ${targetSuffix(spec)} - ${message}`);
+}
+
+function startInstallSpinner(spec) {
+  if (!process.stdout.isTTY) return () => {};
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let index = 0;
+  const render = () => {
+    process.stdout.write(`\r${cyan(frames[index % frames.length])} ${spec.label} ${targetSuffix(spec)} - installing...`);
+    index += 1;
+  };
+  render();
+  const timer = setInterval(render, 80);
+  return () => {
+    clearInterval(timer);
+    process.stdout.write("\r\u001b[2K");
+  };
+}
+
+function withoutInstallLogs(action) {
+  const originalLog = console.log;
+  console.log = () => {};
+  try {
+    return action();
+  } finally {
+    console.log = originalLog;
+  }
+}
+
 function commandExists(command) {
   const paths = String(process.env.PATH || "").split(path.delimiter).filter(Boolean);
   const extensions = process.platform === "win32" ? String(process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";") : [""];
@@ -952,32 +1015,79 @@ function installQwen() {
   console.log("Qwen Code CLI hook installed.");
 }
 
+function installTargets() {
+  return [
+    { target: "codex", label: "Codex CLI", command: "codex", install: installCodex },
+    { target: "claude", label: "Claude Code CLI", command: "claude", install: installClaude },
+    { target: "gemini", label: "Gemini CLI", command: "gemini", install: installGemini },
+    { target: "antigravity", aliases: ["agy"], label: "Antigravity CLI", command: "agy", install: installAntigravity },
+    { target: "opencode", label: "OpenCode CLI", command: "opencode", install: installOpenCode },
+    { target: "pi", label: "Pi Coding Agent", command: "pi", install: installPi },
+    { target: "copilot", label: "GitHub Copilot CLI", command: "copilot", install: installCopilot },
+    { target: "qwen", label: "Qwen Code", command: "qwen", install: installQwen },
+  ];
+}
+
+function targetNames() {
+  return installTargets().flatMap((spec) => [spec.target, ...(spec.aliases || [])]);
+}
+
+function findInstallTarget(target) {
+  return installTargets().find((spec) => spec.target === target || (spec.aliases || []).includes(target));
+}
+
+function renderInstallHeader(target) {
+  const scope = target === "all" ? "supported CLIs" : findInstallTarget(target)?.label || target;
+  console.log(bold("CLIsponsor installer"));
+  console.log(dim(`Scanning ${scope} on this machine...`));
+  console.log("");
+}
+
+function renderInstallSummary(results) {
+  const installed = results.filter((result) => result.status === "installed").length;
+  const missing = results.filter((result) => result.status === "missing").length;
+  const failed = results.filter((result) => result.status === "failed").length;
+  console.log("");
+  const summary = `${installed} installed, ${missing} not found${failed ? `, ${failed} failed` : ""}.`;
+  console.log(failed ? red(summary) : green(summary));
+  if (missing) {
+    console.log(dim("Install missing CLIs and rerun: npx clisponsor@latest install"));
+  }
+}
+
+function installTarget(spec) {
+  if (!commandExists(spec.command)) {
+    installLine("✕", spec, "not found", red);
+    return { target: spec.target, status: "missing" };
+  }
+
+  const stopSpinner = startInstallSpinner(spec);
+  try {
+    withoutInstallLogs(spec.install);
+    stopSpinner();
+    installLine("✓", spec, "installed", green);
+    return { target: spec.target, status: "installed" };
+  } catch (error) {
+    stopSpinner();
+    installLine("!", spec, `failed: ${error.message}`, red);
+    return { target: spec.target, status: "failed", error };
+  }
+}
+
 function installAll() {
-  installCodex();
-  installClaude();
-  installGemini();
-  installAntigravity();
-  installOpenCode();
-  installPi();
-  installCopilot();
-  installQwen();
+  return installTargets().map((spec) => installTarget(spec));
 }
 
 function install() {
   const target = process.argv[3] && !process.argv[3].startsWith("--") ? process.argv[3] : "all";
-  if (!["all", "codex", "claude", "gemini", "antigravity", "agy", "opencode", "pi", "copilot", "qwen"].includes(target)) {
+  if (!["all", ...targetNames()].includes(target)) {
     console.error("Unknown install target. Use: codex, claude, gemini, antigravity, opencode, pi, copilot, qwen, or all.");
     process.exit(1);
   }
-  if (target === "all") installAll();
-  else if (target === "codex") installCodex();
-  else if (target === "claude") installClaude();
-  else if (target === "gemini") installGemini();
-  else if (target === "opencode") installOpenCode();
-  else if (target === "pi") installPi();
-  else if (target === "copilot") installCopilot();
-  else if (target === "qwen") installQwen();
-  else installAntigravity();
+  renderInstallHeader(target);
+  const results = target === "all" ? installAll() : [installTarget(findInstallTarget(target))];
+  renderInstallSummary(results);
+  if (results.some((result) => result.status === "failed")) process.exit(1);
 }
 
 function uninstallCodex() {
