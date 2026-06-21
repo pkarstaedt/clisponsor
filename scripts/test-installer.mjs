@@ -103,6 +103,8 @@ try {
   assert.match(help, /pi/);
   assert.match(help, /copilot/);
   assert.match(help, /qwen/);
+  assert.match(help, /droid/);
+  assert.match(help, /devin/);
 
   const statusWithoutLogin = runRaw(["status"], { expectedStatus: 1, testHome: noLoginHome });
   assert.match(statusWithoutLogin.stderr, /clisponsor login <email>/);
@@ -166,6 +168,8 @@ globalThis.fetch = async (url, options) => {
   assert.match(installOutput, /Pi Coding Agent .*not found/);
   assert.match(installOutput, /GitHub Copilot CLI .*not found/);
   assert.match(installOutput, /Qwen Code .*not found/);
+  assert.match(installOutput, /Factory Droid CLI .*not found/);
+  assert.match(installOutput, /Devin CLI .*not found/);
   assert.doesNotMatch(installOutput, /Codex CLI plugin installed/);
   assert.doesNotMatch(installOutput, /Claude Code CLI hook installed/);
   assert.doesNotMatch(installOutput, /Gemini CLI hook installed/);
@@ -174,11 +178,15 @@ globalThis.fetch = async (url, options) => {
   assert.doesNotMatch(installOutput, /Pi CLI extension installed/);
   assert.doesNotMatch(installOutput, /GitHub Copilot CLI hook installed/);
   assert.doesNotMatch(installOutput, /Qwen Code CLI hook installed/);
+  assert.doesNotMatch(installOutput, /Factory Droid CLI hook installed/);
+  assert.doesNotMatch(installOutput, /Devin CLI hook installed/);
   assert.equal(fs.existsSync(path.join(home, ".gemini", "settings.json")), false);
   assert.equal(fs.existsSync(path.join(home, ".gemini", "config", "hooks.json")), false);
   assert.equal(fs.existsSync(path.join(home, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts")), false);
   assert.equal(fs.existsSync(path.join(home, ".copilot", "hooks", "clisponsor.json")), false);
   assert.equal(fs.existsSync(path.join(home, ".qwen", "settings.json")), false);
+  assert.equal(fs.existsSync(path.join(home, ".factory", "hooks.json")), false);
+  assert.equal(fs.existsSync(path.join(home, ".config", "devin", "config.json")), false);
   assert.doesNotMatch(installOutput, /Serve API/);
   assert.doesNotMatch(installOutput, /serve\\.clisponsor\\.com/);
 
@@ -211,6 +219,8 @@ globalThis.fetch = async (url, options) => {
   assert.equal(doctor.deviceCode, "sentence-tiger-wonder");
   assert.equal(doctor.network.skipped, true);
   assert.equal(doctor.installed.qwenHookScript, false);
+  assert.equal(doctor.installed.droidHookScript, false);
+  assert.equal(doctor.installed.devinHookScript, false);
 
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-plugin", "scripts", "clisponsor_codex_hook.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-marketplace", "plugins", "clisponsor")), false);
@@ -221,6 +231,8 @@ globalThis.fetch = async (url, options) => {
   assert.equal(fs.existsSync(path.join(home, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts")), false);
   assert.equal(fs.existsSync(path.join(home, ".copilot", "hooks", "clisponsor.json")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "qwen", "clisponsor_qwen_hook.mjs")), false);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "droid", "clisponsor_droid_hook.mjs")), false);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "devin", "clisponsor_devin_hook.mjs")), false);
 
   const hookCapture = path.join(home, "captured-hook.json");
   const hookMock = path.join(home, "mock-hook-fetch.mjs");
@@ -616,6 +628,126 @@ fs.writeFileSync(process.env.CLISPONSOR_PI_PROBE_PATH, JSON.stringify({ calls, n
     1,
   );
 
+  fs.mkdirSync(path.join(home, ".factory"), { recursive: true });
+  writeJson(path.join(home, ".factory", "hooks.json"), {
+    hooks: {
+      UserPromptSubmit: [
+        {
+          hooks: [{ type: "command", command: "node /tmp/keep-droid.mjs", timeout: 1 }],
+        },
+      ],
+    },
+  });
+  const fakeBinWithDroid = makeFakeBin(["droid"]);
+  const droidInstallOutput = run(["install", "droid"], { pathValue: fakeBinWithDroid });
+  assert.match(droidInstallOutput, /Factory Droid CLI .*installed/);
+  const droidHook = path.join(home, ".clisponsor", "droid", "clisponsor_droid_hook.mjs");
+  assert.equal(fs.existsSync(droidHook), true);
+  const droidHooks = readJson(path.join(home, ".factory", "hooks.json"));
+  assert.equal(JSON.stringify(droidHooks).includes("keep-droid.mjs"), true);
+  assert.equal(
+    droidHooks.hooks.SessionStart.filter((entry) => JSON.stringify(entry).includes("clisponsor_droid_hook.mjs")).length,
+    1,
+  );
+  assert.equal(
+    droidHooks.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("clisponsor_droid_hook.mjs")).length,
+    1,
+  );
+  assert.equal(
+    droidHooks.hooks.Stop.filter((entry) => JSON.stringify(entry).includes("clisponsor_droid_hook.mjs")).length,
+    1,
+  );
+  assert.equal(droidHooks.hooks.UserPromptSubmit[1].hooks[0].name, "clisponsor");
+  assert.equal(droidHooks.hooks.UserPromptSubmit[1].hooks[0].timeout, 5);
+  const droidHookRun = runNode(["--import", hookMock, droidHook, "UserPromptSubmit"], {
+    input: JSON.stringify({
+      prompt: "do not capture this for droid",
+      cwd: "/private/droid/project",
+      transcript_path: "/private/droid/transcript.jsonl",
+    }),
+    env: { CLISPONSOR_HOOK_CAPTURE_PATH: hookCapture },
+  });
+  assert.deepEqual(JSON.parse(droidHookRun.stdout), { systemMessage: "[Sponsored] Test sponsor line" });
+  const capturedDroidHook = readJson(hookCapture);
+  const capturedDroidBody = JSON.parse(capturedDroidHook.body);
+  assert.equal(capturedDroidHook.url, "https://serve.clisponsor.com/v1/ads/serve");
+  assert.equal(capturedDroidHook.headers.authorization, "Bearer cls_dev_test-secret");
+  assert.equal(capturedDroidBody.client, "Droid");
+  assert.equal(capturedDroidBody.hook_event, "UserPromptSubmit");
+  assert.equal(capturedDroidBody.placement, "StartTurn");
+  assert.equal(capturedDroidBody.metadata.hookInput, undefined);
+  assert.equal(JSON.stringify(capturedDroidBody).includes("do not capture this for droid"), false);
+  assert.equal(JSON.stringify(capturedDroidBody).includes("/private/droid/project"), false);
+  assert.equal(JSON.stringify(capturedDroidBody).includes("transcript.jsonl"), false);
+  run(["install", "droid"], { pathValue: fakeBinWithDroid });
+  const droidHooksAfterReinstall = readJson(path.join(home, ".factory", "hooks.json"));
+  assert.equal(
+    droidHooksAfterReinstall.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("clisponsor_droid_hook.mjs")).length,
+    1,
+  );
+
+  fs.mkdirSync(path.join(home, ".config", "devin"), { recursive: true });
+  writeJson(path.join(home, ".config", "devin", "config.json"), {
+    theme: "dark",
+    hooks: {
+      UserPromptSubmit: [
+        {
+          matcher: "",
+          hooks: [{ type: "command", command: "node /tmp/keep-devin.mjs", timeout: 1 }],
+        },
+      ],
+    },
+  });
+  const fakeBinWithDevin = makeFakeBin(["devin"]);
+  const devinInstallOutput = run(["install", "devin"], { pathValue: fakeBinWithDevin });
+  assert.match(devinInstallOutput, /Devin CLI .*installed/);
+  const devinHook = path.join(home, ".clisponsor", "devin", "clisponsor_devin_hook.mjs");
+  assert.equal(fs.existsSync(devinHook), true);
+  const devinSettings = readJson(path.join(home, ".config", "devin", "config.json"));
+  assert.equal(devinSettings.theme, "dark");
+  assert.equal(JSON.stringify(devinSettings).includes("keep-devin.mjs"), true);
+  assert.equal(
+    devinSettings.hooks.SessionStart.filter((entry) => JSON.stringify(entry).includes("clisponsor_devin_hook.mjs")).length,
+    1,
+  );
+  assert.equal(
+    devinSettings.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("clisponsor_devin_hook.mjs")).length,
+    1,
+  );
+  assert.equal(
+    devinSettings.hooks.Stop.filter((entry) => JSON.stringify(entry).includes("clisponsor_devin_hook.mjs")).length,
+    1,
+  );
+  assert.equal(devinSettings.hooks.UserPromptSubmit[1].matcher, "");
+  assert.equal(devinSettings.hooks.UserPromptSubmit[1].hooks[0].name, "clisponsor");
+  assert.equal(devinSettings.hooks.UserPromptSubmit[1].hooks[0].timeout, 5);
+  const devinHookRun = runNode(["--import", hookMock, devinHook, "UserPromptSubmit"], {
+    input: JSON.stringify({
+      prompt: "do not capture this for devin",
+      cwd: "/private/devin/project",
+      transcript_path: "/private/devin/transcript.jsonl",
+    }),
+    env: { CLISPONSOR_HOOK_CAPTURE_PATH: hookCapture },
+  });
+  assert.deepEqual(JSON.parse(devinHookRun.stdout), { systemMessage: "[Sponsored] Test sponsor line" });
+  const capturedDevinHook = readJson(hookCapture);
+  const capturedDevinBody = JSON.parse(capturedDevinHook.body);
+  assert.equal(capturedDevinHook.url, "https://serve.clisponsor.com/v1/ads/serve");
+  assert.equal(capturedDevinHook.headers.authorization, "Bearer cls_dev_test-secret");
+  assert.equal(capturedDevinBody.client, "Devin");
+  assert.equal(capturedDevinBody.hook_event, "UserPromptSubmit");
+  assert.equal(capturedDevinBody.placement, "StartTurn");
+  assert.equal(capturedDevinBody.metadata.hookInput, undefined);
+  assert.equal(JSON.stringify(capturedDevinBody).includes("do not capture this for devin"), false);
+  assert.equal(JSON.stringify(capturedDevinBody).includes("/private/devin/project"), false);
+  assert.equal(JSON.stringify(capturedDevinBody).includes("transcript.jsonl"), false);
+  run(["install", "devin"], { pathValue: fakeBinWithDevin });
+  const devinSettingsAfterReinstall = readJson(path.join(home, ".config", "devin", "config.json"));
+  assert.equal(
+    devinSettingsAfterReinstall.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("clisponsor_devin_hook.mjs")).length,
+    1,
+  );
+
   run(["uninstall", "all", "--config"]);
   const cleanedSettings = readJson(path.join(home, ".claude", "settings.json"));
   assert.equal(JSON.stringify(cleanedSettings).includes("clisponsor_claude_hook.mjs"), false);
@@ -629,6 +761,12 @@ fs.writeFileSync(process.env.CLISPONSOR_PI_PROBE_PATH, JSON.stringify({ calls, n
   const cleanedQwenSettings = readJson(path.join(home, ".qwen", "settings.json"));
   assert.equal(JSON.stringify(cleanedQwenSettings).includes("clisponsor_qwen_hook.mjs"), false);
   assert.equal(JSON.stringify(cleanedQwenSettings).includes("keep-qwen.mjs"), true);
+  const cleanedDroidHooks = readJson(path.join(home, ".factory", "hooks.json"));
+  assert.equal(JSON.stringify(cleanedDroidHooks).includes("clisponsor_droid_hook.mjs"), false);
+  assert.equal(JSON.stringify(cleanedDroidHooks).includes("keep-droid.mjs"), true);
+  const cleanedDevinSettings = readJson(path.join(home, ".config", "devin", "config.json"));
+  assert.equal(JSON.stringify(cleanedDevinSettings).includes("clisponsor_devin_hook.mjs"), false);
+  assert.equal(JSON.stringify(cleanedDevinSettings).includes("keep-devin.mjs"), true);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-plugin")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-marketplace")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "claude", "clisponsor_claude_hook.mjs")), false);
@@ -638,6 +776,8 @@ fs.writeFileSync(process.env.CLISPONSOR_PI_PROBE_PATH, JSON.stringify({ calls, n
   assert.equal(fs.existsSync(path.join(home, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts")), false);
   assert.equal(fs.existsSync(path.join(home, ".copilot", "hooks", "clisponsor.json")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "qwen", "clisponsor_qwen_hook.mjs")), false);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "droid", "clisponsor_droid_hook.mjs")), false);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "devin", "clisponsor_devin_hook.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "config.json")), false);
 } finally {
   fs.rmSync(home, { recursive: true, force: true });

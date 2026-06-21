@@ -170,6 +170,14 @@ function qwenHome() {
   return process.env.QWEN_HOME || path.join(HOME, ".qwen");
 }
 
+function factoryHome() {
+  return process.env.FACTORY_HOME || path.join(HOME, ".factory");
+}
+
+function devinConfigPath() {
+  return process.env.DEVIN_CONFIG_PATH || path.join(xdgConfigHome(), "devin", "config.json");
+}
+
 function colorEnabled() {
   return Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
 }
@@ -269,6 +277,8 @@ function isClisponsorCommand(value) {
       value.includes("clisponsor_pi_extension") ||
       value.includes("clisponsor_copilot_hook.mjs") ||
       value.includes("clisponsor_qwen_hook.mjs") ||
+      value.includes("clisponsor_droid_hook.mjs") ||
+      value.includes("clisponsor_devin_hook.mjs") ||
       value.includes(`${path.sep}.clisponsor${path.sep}`) ||
       value.includes("/.clisponsor/") ||
       value.includes("\\.clisponsor\\"))
@@ -357,6 +367,51 @@ function addQwenCommandHook(settings, eventName, command) {
           command,
           name: "clisponsor",
           timeout: 5000,
+        },
+      ],
+    },
+  ];
+  return true;
+}
+
+function addDroidCommandHook(settings, eventName, command) {
+  if (!isPlainObject(settings.hooks)) settings.hooks = {};
+  const current = Array.isArray(settings.hooks[eventName]) ? settings.hooks[eventName] : [];
+  const exists = current.some((entry) => isClisponsorHookEntry(entry));
+  if (exists) return false;
+
+  settings.hooks[eventName] = [
+    ...current,
+    {
+      hooks: [
+        {
+          type: "command",
+          command,
+          name: "clisponsor",
+          timeout: 5,
+        },
+      ],
+    },
+  ];
+  return true;
+}
+
+function addDevinCommandHook(settings, eventName, command) {
+  if (!isPlainObject(settings.hooks)) settings.hooks = {};
+  const current = Array.isArray(settings.hooks[eventName]) ? settings.hooks[eventName] : [];
+  const exists = current.some((entry) => isClisponsorHookEntry(entry));
+  if (exists) return false;
+
+  settings.hooks[eventName] = [
+    ...current,
+    {
+      matcher: "",
+      hooks: [
+        {
+          type: "command",
+          command,
+          name: "clisponsor",
+          timeout: 5,
         },
       ],
     },
@@ -1024,6 +1079,48 @@ function installQwen() {
   console.log("Qwen Code CLI hook installed.");
 }
 
+function installDroid() {
+  if (!commandExists("droid")) {
+    console.log("Factory Droid CLI not found. To enable CLIsponsor for Droid, install Droid CLI and rerun: npx clisponsor@latest install");
+    return;
+  }
+
+  const droidDir = path.join(CONFIG_DIR, "droid");
+  fs.mkdirSync(droidDir, { recursive: true });
+  const hookPath = path.join(droidDir, "clisponsor_droid_hook.mjs");
+  fs.writeFileSync(hookPath, agentHookSource("Droid"), { mode: 0o755 });
+
+  const hooksPath = path.join(factoryHome(), "hooks.json");
+  const hooksConfig = readEditableJson(hooksPath, {});
+  addDroidCommandHook(hooksConfig, "SessionStart", `node ${JSON.stringify(hookPath)} SessionStart`);
+  addDroidCommandHook(hooksConfig, "UserPromptSubmit", `node ${JSON.stringify(hookPath)} UserPromptSubmit`);
+  addDroidCommandHook(hooksConfig, "Stop", `node ${JSON.stringify(hookPath)} Stop`);
+  writeJson(hooksPath, hooksConfig);
+  console.log(`Updated ${hooksPath}`);
+  console.log("Factory Droid CLI hook installed.");
+}
+
+function installDevin() {
+  if (!commandExists("devin")) {
+    console.log("Devin CLI not found. To enable CLIsponsor for Devin, install Devin CLI and rerun: npx clisponsor@latest install");
+    return;
+  }
+
+  const devinDir = path.join(CONFIG_DIR, "devin");
+  fs.mkdirSync(devinDir, { recursive: true });
+  const hookPath = path.join(devinDir, "clisponsor_devin_hook.mjs");
+  fs.writeFileSync(hookPath, agentHookSource("Devin"), { mode: 0o755 });
+
+  const settingsPath = devinConfigPath();
+  const settings = readEditableJson(settingsPath, {});
+  addDevinCommandHook(settings, "SessionStart", `node ${JSON.stringify(hookPath)} SessionStart`);
+  addDevinCommandHook(settings, "UserPromptSubmit", `node ${JSON.stringify(hookPath)} UserPromptSubmit`);
+  addDevinCommandHook(settings, "Stop", `node ${JSON.stringify(hookPath)} Stop`);
+  writeJson(settingsPath, settings);
+  console.log(`Updated ${settingsPath}`);
+  console.log("Devin CLI hook installed.");
+}
+
 function installTargets() {
   return [
     { target: "codex", label: "Codex CLI", command: "codex", install: installCodex },
@@ -1034,6 +1131,8 @@ function installTargets() {
     { target: "pi", label: "Pi Coding Agent", command: "pi", install: installPi },
     { target: "copilot", label: "GitHub Copilot CLI", command: "copilot", install: installCopilot },
     { target: "qwen", label: "Qwen Code", command: "qwen", install: installQwen },
+    { target: "droid", label: "Factory Droid CLI", command: "droid", install: installDroid },
+    { target: "devin", label: "Devin CLI", command: "devin", install: installDevin },
   ];
 }
 
@@ -1090,7 +1189,7 @@ function installAll() {
 function install() {
   const target = process.argv[3] && !process.argv[3].startsWith("--") ? process.argv[3] : "all";
   if (!["all", ...targetNames()].includes(target)) {
-    console.error("Unknown install target. Use: codex, claude, gemini, antigravity, opencode, pi, copilot, qwen, or all.");
+    console.error("Unknown install target. Use: codex, claude, gemini, antigravity, opencode, pi, copilot, qwen, droid, devin, or all.");
     process.exit(1);
   }
   renderInstallHeader(target);
@@ -1198,10 +1297,42 @@ function uninstallQwen() {
   console.log("Removed Qwen Code hook script.");
 }
 
+function uninstallDroid() {
+  const hooksPath = path.join(factoryHome(), "hooks.json");
+  const hooksConfig = readEditableJson(hooksPath, {});
+  if (removeClaudeCommandHooks(hooksConfig)) {
+    writeJson(hooksPath, hooksConfig);
+    console.log(`Removed CLIsponsor hooks from ${hooksPath}`);
+  } else {
+    console.log("No CLIsponsor Factory Droid hooks found.");
+  }
+  fs.rmSync(path.join(CONFIG_DIR, "droid", "clisponsor_droid_hook.mjs"), { force: true });
+  try {
+    fs.rmdirSync(path.join(CONFIG_DIR, "droid"));
+  } catch {}
+  console.log("Removed Factory Droid hook script.");
+}
+
+function uninstallDevin() {
+  const settingsPath = devinConfigPath();
+  const settings = readEditableJson(settingsPath, {});
+  if (removeClaudeCommandHooks(settings)) {
+    writeJson(settingsPath, settings);
+    console.log(`Removed CLIsponsor hooks from ${settingsPath}`);
+  } else {
+    console.log("No CLIsponsor Devin hooks found.");
+  }
+  fs.rmSync(path.join(CONFIG_DIR, "devin", "clisponsor_devin_hook.mjs"), { force: true });
+  try {
+    fs.rmdirSync(path.join(CONFIG_DIR, "devin"));
+  } catch {}
+  console.log("Removed Devin hook script.");
+}
+
 function uninstall() {
   const target = process.argv[3] && !process.argv[3].startsWith("--") ? process.argv[3] : "all";
-  if (!["all", "codex", "claude", "gemini", "antigravity", "agy", "opencode", "pi", "copilot", "qwen"].includes(target)) {
-    console.error("Unknown uninstall target. Use: codex, claude, gemini, antigravity, opencode, pi, copilot, qwen, or all.");
+  if (!["all", "codex", "claude", "gemini", "antigravity", "agy", "opencode", "pi", "copilot", "qwen", "droid", "devin"].includes(target)) {
+    console.error("Unknown uninstall target. Use: codex, claude, gemini, antigravity, opencode, pi, copilot, qwen, droid, devin, or all.");
     process.exit(1);
   }
   if (target === "all" || target === "codex") uninstallCodex();
@@ -1212,6 +1343,8 @@ function uninstall() {
   if (target === "all" || target === "pi") uninstallPi();
   if (target === "all" || target === "copilot") uninstallCopilot();
   if (target === "all" || target === "qwen") uninstallQwen();
+  if (target === "all" || target === "droid") uninstallDroid();
+  if (target === "all" || target === "devin") uninstallDevin();
   if (hasFlag("--config")) {
     fs.rmSync(CONFIG_PATH, { force: true });
     console.log(`Removed ${CONFIG_PATH}`);
@@ -1265,17 +1398,19 @@ async function doctor() {
     email: cfg.email || null,
     userId: cfg.userId || null,
     deviceCode: cfg.deviceCode || null,
-	    installed: {
-	      codexPluginStaged: fs.existsSync(path.join(CONFIG_DIR, "codex-marketplace", "plugins", "clisponsor")),
-	      claudeSettings: fs.existsSync(path.join(HOME, ".claude", "settings.json")),
-	      claudeHookScript: fs.existsSync(path.join(CONFIG_DIR, "claude", "clisponsor_claude_hook.mjs")),
-	      geminiHookScript: fs.existsSync(path.join(CONFIG_DIR, "gemini", "clisponsor_gemini_hook.mjs")),
-	      antigravityHookScript: fs.existsSync(path.join(CONFIG_DIR, "antigravity", "clisponsor_antigravity_hook.mjs")),
-	      opencodePlugin: fs.existsSync(path.join(openCodeConfigDir(), "plugins", "clisponsor_opencode_plugin.js")),
-	      piExtension: fs.existsSync(path.join(HOME, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts")),
-	      copilotHook: fs.existsSync(path.join(copilotHome(), "hooks", "clisponsor.json")),
-	      qwenHookScript: fs.existsSync(path.join(CONFIG_DIR, "qwen", "clisponsor_qwen_hook.mjs")),
-	    },
+    installed: {
+      codexPluginStaged: fs.existsSync(path.join(CONFIG_DIR, "codex-marketplace", "plugins", "clisponsor")),
+      claudeSettings: fs.existsSync(path.join(HOME, ".claude", "settings.json")),
+      claudeHookScript: fs.existsSync(path.join(CONFIG_DIR, "claude", "clisponsor_claude_hook.mjs")),
+      geminiHookScript: fs.existsSync(path.join(CONFIG_DIR, "gemini", "clisponsor_gemini_hook.mjs")),
+      antigravityHookScript: fs.existsSync(path.join(CONFIG_DIR, "antigravity", "clisponsor_antigravity_hook.mjs")),
+      opencodePlugin: fs.existsSync(path.join(openCodeConfigDir(), "plugins", "clisponsor_opencode_plugin.js")),
+      piExtension: fs.existsSync(path.join(HOME, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts")),
+      copilotHook: fs.existsSync(path.join(copilotHome(), "hooks", "clisponsor.json")),
+      qwenHookScript: fs.existsSync(path.join(CONFIG_DIR, "qwen", "clisponsor_qwen_hook.mjs")),
+      droidHookScript: fs.existsSync(path.join(CONFIG_DIR, "droid", "clisponsor_droid_hook.mjs")),
+      devinHookScript: fs.existsSync(path.join(CONFIG_DIR, "devin", "clisponsor_devin_hook.mjs")),
+    },
     network: {},
   };
 
@@ -1306,6 +1441,8 @@ async function doctor() {
   console.log(`Pi extension: ${diagnostics.installed.piExtension ? "yes" : "no"}`);
   console.log(`GitHub Copilot CLI hook: ${diagnostics.installed.copilotHook ? "yes" : "no"}`);
   console.log(`Qwen Code hook script: ${diagnostics.installed.qwenHookScript ? "yes" : "no"}`);
+  console.log(`Factory Droid hook script: ${diagnostics.installed.droidHookScript ? "yes" : "no"}`);
+  console.log(`Devin hook script: ${diagnostics.installed.devinHookScript ? "yes" : "no"}`);
   if (skipNetwork) {
     console.log("Network: skipped");
   } else {
@@ -1316,9 +1453,9 @@ async function doctor() {
 
 function help() {
   console.log(`clisponsor commands:
-  clisponsor install [all|codex|claude|gemini|antigravity|opencode|pi|copilot|qwen]
+  clisponsor install [all|codex|claude|gemini|antigravity|opencode|pi|copilot|qwen|droid|devin]
   clisponsor login <email> [--label=<device-label>]
-  clisponsor uninstall [all|codex|claude|gemini|antigravity|opencode|pi|copilot|qwen] [--config]
+  clisponsor uninstall [all|codex|claude|gemini|antigravity|opencode|pi|copilot|qwen|droid|devin] [--config]
   clisponsor status
   clisponsor doctor [--json] [--skip-network]
 

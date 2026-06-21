@@ -1,6 +1,6 @@
 # CLIsponsor Hook
 
-Hook package codebase for the `clisponsor` installer and Codex, Claude Code, Gemini, Antigravity, OpenCode, Pi, GitHub Copilot CLI, and Qwen Code hook templates.
+Hook package codebase for the `clisponsor` installer and Codex, Claude Code, Gemini, Antigravity, OpenCode, Pi, GitHub Copilot CLI, Qwen Code, Factory Droid, and Devin hook templates.
 
 This codebase owns local installation, device login, diagnostics, and hook adapters. It must not contain public website, dashboard app, API account, or ad-serving server code.
 
