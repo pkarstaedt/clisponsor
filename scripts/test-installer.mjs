@@ -13,7 +13,15 @@ function runRaw(args, options = {}) {
   const { expectedStatus = 0, input = "", env = {}, testHome = home, pathValue = process.env.PATH } = options;
   const result = spawnSync(process.execPath, [bin, ...args], {
     cwd: root,
-    env: { ...process.env, HOME: testHome, PATH: pathValue, ...env },
+    env: {
+      ...process.env,
+      HOME: testHome,
+      XDG_CONFIG_HOME: path.join(testHome, ".config"),
+      XDG_DATA_HOME: path.join(testHome, ".local", "share"),
+      XDG_CACHE_HOME: path.join(testHome, ".cache"),
+      PATH: pathValue,
+      ...env,
+    },
     input,
     encoding: "utf8",
   });
@@ -61,7 +69,14 @@ function runNode(args, options = {}) {
   const { expectedStatus = 0, input = "", env = {}, testHome = home } = options;
   const result = spawnSync(process.execPath, args, {
     cwd: root,
-    env: { ...process.env, HOME: testHome, ...env },
+    env: {
+      ...process.env,
+      HOME: testHome,
+      XDG_CONFIG_HOME: path.join(testHome, ".config"),
+      XDG_DATA_HOME: path.join(testHome, ".local", "share"),
+      XDG_CACHE_HOME: path.join(testHome, ".cache"),
+      ...env,
+    },
     input,
     encoding: "utf8",
   });
@@ -84,6 +99,10 @@ try {
   assert.match(help, /claude/);
   assert.match(help, /gemini/);
   assert.match(help, /antigravity/);
+  assert.match(help, /opencode/);
+  assert.match(help, /pi/);
+  assert.match(help, /copilot/);
+  assert.match(help, /qwen/);
 
   const statusWithoutLogin = runRaw(["status"], { expectedStatus: 1, testHome: noLoginHome });
   assert.match(statusWithoutLogin.stderr, /clisponsor login <email>/);
@@ -142,11 +161,22 @@ globalThis.fetch = async (url, options) => {
   assert.match(installOutput, /Claude Code CLI hook installed/);
   assert.match(installOutput, /Gemini CLI not found/);
   assert.match(installOutput, /Antigravity CLI not found/);
+  assert.match(installOutput, /OpenCode CLI not found/);
+  assert.match(installOutput, /Pi CLI not found/);
+  assert.match(installOutput, /GitHub Copilot CLI not found/);
+  assert.match(installOutput, /Qwen Code CLI not found/);
   assert.doesNotMatch(installOutput, /Codex CLI plugin installed/);
   assert.doesNotMatch(installOutput, /Gemini CLI hook installed/);
   assert.doesNotMatch(installOutput, /Antigravity CLI hook installed/);
+  assert.doesNotMatch(installOutput, /OpenCode CLI plugin installed/);
+  assert.doesNotMatch(installOutput, /Pi CLI extension installed/);
+  assert.doesNotMatch(installOutput, /GitHub Copilot CLI hook installed/);
+  assert.doesNotMatch(installOutput, /Qwen Code CLI hook installed/);
   assert.equal(fs.existsSync(path.join(home, ".gemini", "settings.json")), false);
   assert.equal(fs.existsSync(path.join(home, ".gemini", "config", "hooks.json")), false);
+  assert.equal(fs.existsSync(path.join(home, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts")), false);
+  assert.equal(fs.existsSync(path.join(home, ".copilot", "hooks", "clisponsor.json")), false);
+  assert.equal(fs.existsSync(path.join(home, ".qwen", "settings.json")), false);
   assert.doesNotMatch(installOutput, /Serve API/);
   assert.doesNotMatch(installOutput, /serve\\.clisponsor\\.com/);
 
@@ -178,12 +208,17 @@ globalThis.fetch = async (url, options) => {
   assert.equal(doctor.email, "carterjay@gmail.com");
   assert.equal(doctor.deviceCode, "sentence-tiger-wonder");
   assert.equal(doctor.network.skipped, true);
+  assert.equal(doctor.installed.qwenHookScript, false);
 
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-plugin", "scripts", "clisponsor_codex_hook.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-marketplace", "plugins", "clisponsor")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "claude", "clisponsor_claude_hook.mjs")), true);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "gemini", "clisponsor_gemini_hook.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "antigravity", "clisponsor_antigravity_hook.mjs")), false);
+  assert.equal(fs.existsSync(path.join(home, ".config", "opencode", "plugins", "clisponsor_opencode_plugin.js")), false);
+  assert.equal(fs.existsSync(path.join(home, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts")), false);
+  assert.equal(fs.existsSync(path.join(home, ".copilot", "hooks", "clisponsor.json")), false);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "qwen", "clisponsor_qwen_hook.mjs")), false);
 
   const hookCapture = path.join(home, "captured-hook.json");
   const hookMock = path.join(home, "mock-hook-fetch.mjs");
@@ -375,6 +410,208 @@ globalThis.fetch = async (url, options) => {
     1,
   );
 
+  const fakeBinWithOpenCode = makeFakeBin(["opencode"]);
+  const opencodeInstallOutput = run(["install", "opencode"], { pathValue: fakeBinWithOpenCode });
+  assert.match(opencodeInstallOutput, /OpenCode CLI plugin installed/);
+  const opencodePlugin = path.join(home, ".config", "opencode", "plugins", "clisponsor_opencode_plugin.js");
+  assert.equal(fs.existsSync(opencodePlugin), true);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "opencode", "clisponsor_opencode_plugin.js")), true);
+
+  const opencodeProbe = path.join(home, "probe-opencode-plugin.mjs");
+  fs.writeFileSync(
+    opencodeProbe,
+    `
+import fs from "node:fs";
+const mod = await import(${JSON.stringify(`file://${opencodePlugin}`)});
+const calls = [];
+globalThis.fetch = async (url, options) => {
+  calls.push({ url, ...options });
+  return { ok: true, async json() { return { display_line: "OpenCode sponsor line" }; } };
+};
+const toasts = [];
+const hooks = await mod.CLIsponsorOpenCodePlugin({
+  client: {
+    tui: {
+      async showToast(input) {
+        toasts.push(input);
+        return { data: true };
+      },
+    },
+  },
+});
+await hooks["chat.message"]({ sessionID: "session-123", agent: "build" }, {});
+fs.writeFileSync(process.env.CLISPONSOR_OPENCODE_PROBE_PATH, JSON.stringify({ calls, toasts }, null, 2));
+`,
+  );
+  const opencodeProbeOutput = path.join(home, "opencode-probe-output.json");
+  runNode([opencodeProbe, "opencode"], {
+    env: { CLISPONSOR_OPENCODE_PROBE_PATH: opencodeProbeOutput },
+  });
+  const opencodeProbeResult = readJson(opencodeProbeOutput);
+  assert.equal(opencodeProbeResult.calls.length, 1);
+  assert.equal(opencodeProbeResult.calls[0].url, "https://serve.clisponsor.com/v1/ads/serve");
+  assert.equal(opencodeProbeResult.calls[0].headers.authorization, "Bearer cls_dev_test-secret");
+  const opencodeBody = JSON.parse(opencodeProbeResult.calls[0].body);
+  assert.equal(opencodeBody.client, "OpenCode");
+  assert.equal(opencodeBody.hook_event, "chat.message");
+  assert.equal(opencodeBody.placement, "StartTurn");
+  assert.equal(opencodeBody.metadata.openCode.sessionID, "session-123");
+  assert.equal(opencodeProbeResult.toasts.length, 1);
+  assert.equal(opencodeProbeResult.toasts[0].body.title, "CLIsponsor StartTurn");
+  assert.equal(opencodeProbeResult.toasts[0].body.message, "[Sponsored] OpenCode sponsor line");
+
+  const fakeBinWithPi = makeFakeBin(["pi"]);
+  const piInstallOutput = run(["install", "pi"], { pathValue: fakeBinWithPi });
+  assert.match(piInstallOutput, /Pi CLI extension installed/);
+  const piExtension = path.join(home, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts");
+  assert.equal(fs.existsSync(piExtension), true);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "pi", "clisponsor_pi_extension.ts")), true);
+
+  const piProbe = path.join(home, "probe-pi-extension.mjs");
+  const piProbeImport = path.join(home, "clisponsor_pi_extension_probe.mjs");
+  fs.copyFileSync(piExtension, piProbeImport);
+  fs.writeFileSync(
+    piProbe,
+    `
+import fs from "node:fs";
+const mod = await import(${JSON.stringify(`file://${piProbeImport}`)});
+const calls = [];
+globalThis.fetch = async (url, options) => {
+  calls.push({ url, ...options });
+  return { ok: true, async json() { return { display_line: "Pi sponsor line" }; } };
+};
+const notifications = [];
+const handlers = new Map();
+mod.default({
+  on(event, handler) {
+    handlers.set(event, handler);
+  },
+});
+const ctx = {
+  hasUI: true,
+  ui: {
+    notify(message, variant) {
+      notifications.push({ message, variant });
+    },
+  },
+};
+await handlers.get("agent_start")({}, ctx);
+fs.writeFileSync(process.env.CLISPONSOR_PI_PROBE_PATH, JSON.stringify({ calls, notifications }, null, 2));
+`,
+  );
+  const piProbeOutput = path.join(home, "pi-probe-output.json");
+  runNode([piProbe], {
+    env: { CLISPONSOR_PI_PROBE_PATH: piProbeOutput },
+  });
+  const piProbeResult = readJson(piProbeOutput);
+  assert.equal(piProbeResult.calls.length, 1);
+  assert.equal(piProbeResult.calls[0].url, "https://serve.clisponsor.com/v1/ads/serve");
+  assert.equal(piProbeResult.calls[0].headers.authorization, "Bearer cls_dev_test-secret");
+  const piBody = JSON.parse(piProbeResult.calls[0].body);
+  assert.equal(piBody.client, "Pi");
+  assert.equal(piBody.hook_event, "agent_start");
+  assert.equal(piBody.placement, "StartTurn");
+  assert.deepEqual(piBody.metadata.pi, {});
+  assert.equal(piProbeResult.notifications.length, 1);
+  assert.equal(piProbeResult.notifications[0].variant, "info");
+  assert.equal(piProbeResult.notifications[0].message, "CLIsponsor StartTurn\n[Sponsored] Pi sponsor line");
+
+  const fakeBinWithCopilot = makeFakeBin(["copilot"]);
+  const copilotInstallOutput = run(["install", "copilot"], { pathValue: fakeBinWithCopilot });
+  assert.match(copilotInstallOutput, /GitHub Copilot CLI hook installed/);
+  const copilotHooksPath = path.join(home, ".copilot", "hooks", "clisponsor.json");
+  const copilotHook = path.join(home, ".clisponsor", "copilot", "clisponsor_copilot_hook.mjs");
+  assert.equal(fs.existsSync(copilotHooksPath), true);
+  assert.equal(fs.existsSync(copilotHook), true);
+  const copilotHooks = readJson(copilotHooksPath);
+  assert.equal(copilotHooks.version, 1);
+  assert.equal(copilotHooks.hooks.sessionStart.length, 1);
+  assert.equal(copilotHooks.hooks.userPromptSubmitted.length, 1);
+  assert.equal(copilotHooks.hooks.agentStop.length, 1);
+  assert.equal(JSON.stringify(copilotHooks).includes("clisponsor_copilot_hook.mjs"), true);
+
+  const copilotHookRun = runNode(["--import", hookMock, copilotHook, "userPromptSubmitted"], {
+    input: JSON.stringify({
+      sessionId: "copilot-session-123",
+      prompt: "do not capture this for copilot",
+      cwd: "/private/project/path",
+    }),
+    env: { CLISPONSOR_HOOK_CAPTURE_PATH: hookCapture },
+  });
+  const copilotOutput = copilotHookRun.stdout.trim().split(/\n/).map((line) => JSON.parse(line));
+  assert.deepEqual(copilotOutput, [
+    { type: "progress", message: "CLIsponsor StartTurn: [Sponsored] Test sponsor line" },
+    {},
+  ]);
+  const capturedCopilotHook = readJson(hookCapture);
+  const capturedCopilotBody = JSON.parse(capturedCopilotHook.body);
+  assert.equal(capturedCopilotHook.url, "https://serve.clisponsor.com/v1/ads/serve");
+  assert.equal(capturedCopilotHook.headers.authorization, "Bearer cls_dev_test-secret");
+  assert.equal(capturedCopilotBody.client, "GitHubCopilot");
+  assert.equal(capturedCopilotBody.hook_event, "userPromptSubmitted");
+  assert.equal(capturedCopilotBody.placement, "StartTurn");
+  assert.equal(capturedCopilotBody.metadata.copilot.sessionId, "copilot-session-123");
+  assert.equal(JSON.stringify(capturedCopilotBody).includes("do not capture this for copilot"), false);
+  assert.equal(JSON.stringify(capturedCopilotBody).includes("/private/project/path"), false);
+
+  fs.mkdirSync(path.join(home, ".qwen"), { recursive: true });
+  writeJson(path.join(home, ".qwen", "settings.json"), {
+    hooks: {
+      UserPromptSubmit: [
+        {
+          hooks: [{ type: "command", command: "node /tmp/keep-qwen.mjs", timeout: 1 }],
+        },
+      ],
+    },
+  });
+  const fakeBinWithQwen = makeFakeBin(["qwen"]);
+  const qwenInstallOutput = run(["install", "qwen"], { pathValue: fakeBinWithQwen });
+  assert.match(qwenInstallOutput, /Qwen Code CLI hook installed/);
+  const qwenHook = path.join(home, ".clisponsor", "qwen", "clisponsor_qwen_hook.mjs");
+  assert.equal(fs.existsSync(qwenHook), true);
+  const qwenSettings = readJson(path.join(home, ".qwen", "settings.json"));
+  assert.equal(JSON.stringify(qwenSettings).includes("keep-qwen.mjs"), true);
+  assert.equal(
+    qwenSettings.hooks.SessionStart.filter((entry) => JSON.stringify(entry).includes("clisponsor_qwen_hook.mjs")).length,
+    1,
+  );
+  assert.equal(
+    qwenSettings.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("clisponsor_qwen_hook.mjs")).length,
+    1,
+  );
+  assert.equal(
+    qwenSettings.hooks.Stop.filter((entry) => JSON.stringify(entry).includes("clisponsor_qwen_hook.mjs")).length,
+    1,
+  );
+  assert.equal(qwenSettings.hooks.UserPromptSubmit[1].hooks[0].name, "clisponsor");
+  assert.equal(qwenSettings.hooks.UserPromptSubmit[1].hooks[0].timeout, 5000);
+  const qwenHookRun = runNode(["--import", hookMock, qwenHook, "UserPromptSubmit"], {
+    input: JSON.stringify({
+      prompt: "do not capture this for qwen",
+      last_assistant_message: "do not capture assistant text for qwen",
+      cwd: "/private/qwen/project",
+    }),
+    env: { CLISPONSOR_HOOK_CAPTURE_PATH: hookCapture },
+  });
+  assert.deepEqual(JSON.parse(qwenHookRun.stdout), { systemMessage: "[Sponsored] Test sponsor line" });
+  const capturedQwenHook = readJson(hookCapture);
+  const capturedQwenBody = JSON.parse(capturedQwenHook.body);
+  assert.equal(capturedQwenHook.url, "https://serve.clisponsor.com/v1/ads/serve");
+  assert.equal(capturedQwenHook.headers.authorization, "Bearer cls_dev_test-secret");
+  assert.equal(capturedQwenBody.client, "QwenCode");
+  assert.equal(capturedQwenBody.hook_event, "UserPromptSubmit");
+  assert.equal(capturedQwenBody.placement, "StartTurn");
+  assert.equal(capturedQwenBody.metadata.hookInput, undefined);
+  assert.equal(JSON.stringify(capturedQwenBody).includes("do not capture this for qwen"), false);
+  assert.equal(JSON.stringify(capturedQwenBody).includes("do not capture assistant text for qwen"), false);
+  assert.equal(JSON.stringify(capturedQwenBody).includes("/private/qwen/project"), false);
+  run(["install", "qwen"], { pathValue: fakeBinWithQwen });
+  const qwenSettingsAfterReinstall = readJson(path.join(home, ".qwen", "settings.json"));
+  assert.equal(
+    qwenSettingsAfterReinstall.hooks.UserPromptSubmit.filter((entry) => JSON.stringify(entry).includes("clisponsor_qwen_hook.mjs")).length,
+    1,
+  );
+
   run(["uninstall", "all", "--config"]);
   const cleanedSettings = readJson(path.join(home, ".claude", "settings.json"));
   assert.equal(JSON.stringify(cleanedSettings).includes("clisponsor_claude_hook.mjs"), false);
@@ -385,11 +622,18 @@ globalThis.fetch = async (url, options) => {
   const cleanedAntigravityHooks = readJson(path.join(home, ".gemini", "config", "hooks.json"));
   assert.equal(JSON.stringify(cleanedAntigravityHooks).includes("clisponsor_antigravity_hook.mjs"), false);
   assert.equal(JSON.stringify(cleanedAntigravityHooks).includes("keep-antigravity.mjs"), true);
+  const cleanedQwenSettings = readJson(path.join(home, ".qwen", "settings.json"));
+  assert.equal(JSON.stringify(cleanedQwenSettings).includes("clisponsor_qwen_hook.mjs"), false);
+  assert.equal(JSON.stringify(cleanedQwenSettings).includes("keep-qwen.mjs"), true);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-plugin")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "codex-marketplace")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "claude", "clisponsor_claude_hook.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "gemini", "clisponsor_gemini_hook.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "antigravity", "clisponsor_antigravity_hook.mjs")), false);
+  assert.equal(fs.existsSync(path.join(home, ".config", "opencode", "plugins", "clisponsor_opencode_plugin.js")), false);
+  assert.equal(fs.existsSync(path.join(home, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts")), false);
+  assert.equal(fs.existsSync(path.join(home, ".copilot", "hooks", "clisponsor.json")), false);
+  assert.equal(fs.existsSync(path.join(home, ".clisponsor", "qwen", "clisponsor_qwen_hook.mjs")), false);
   assert.equal(fs.existsSync(path.join(home, ".clisponsor", "config.json")), false);
 } finally {
   fs.rmSync(home, { recursive: true, force: true });

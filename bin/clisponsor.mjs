@@ -16,6 +16,30 @@ const DEFAULT_BACKEND_BASE_URL = process.env.CLISPONSOR_BACKEND_BASE_URL || "htt
 const HOOK_VERSION = "1.0.0";
 const NETWORK_TIMEOUT_MS = 3000;
 const ANTIGRAVITY_EVENTS = ["PreInvocation"];
+const OPENCODE_NON_TUI_COMMANDS = new Set([
+  "completion",
+  "acp",
+  "mcp",
+  "run",
+  "debug",
+  "providers",
+  "auth",
+  "agent",
+  "upgrade",
+  "uninstall",
+  "serve",
+  "web",
+  "models",
+  "stats",
+  "export",
+  "import",
+  "github",
+  "pr",
+  "session",
+  "plugin",
+  "plug",
+  "db",
+]);
 
 function argValue(name) {
   const prefix = `${name}=`;
@@ -130,6 +154,22 @@ function chmodExecutable(file) {
   } catch {}
 }
 
+function xdgConfigHome() {
+  return process.env.XDG_CONFIG_HOME || path.join(HOME, ".config");
+}
+
+function openCodeConfigDir() {
+  return process.env.OPENCODE_CONFIG_DIR || path.join(xdgConfigHome(), "opencode");
+}
+
+function copilotHome() {
+  return process.env.COPILOT_HOME || path.join(HOME, ".copilot");
+}
+
+function qwenHome() {
+  return process.env.QWEN_HOME || path.join(HOME, ".qwen");
+}
+
 function commandExists(command) {
   const paths = String(process.env.PATH || "").split(path.delimiter).filter(Boolean);
   const extensions = process.platform === "win32" ? String(process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";") : [""];
@@ -162,6 +202,10 @@ function isClisponsorCommand(value) {
     (value.includes("clisponsor_claude_hook.mjs") ||
       value.includes("clisponsor_gemini_hook.mjs") ||
       value.includes("clisponsor_antigravity_hook.mjs") ||
+      value.includes("clisponsor_opencode_plugin") ||
+      value.includes("clisponsor_pi_extension") ||
+      value.includes("clisponsor_copilot_hook.mjs") ||
+      value.includes("clisponsor_qwen_hook.mjs") ||
       value.includes(`${path.sep}.clisponsor${path.sep}`) ||
       value.includes("/.clisponsor/") ||
       value.includes("\\.clisponsor\\"))
@@ -227,6 +271,28 @@ function addGeminiCommandHook(settings, eventName, matcher, command) {
           name: "clisponsor",
           type: "command",
           command,
+          timeout: 5000,
+        },
+      ],
+    },
+  ];
+  return true;
+}
+
+function addQwenCommandHook(settings, eventName, command) {
+  if (!isPlainObject(settings.hooks)) settings.hooks = {};
+  const current = Array.isArray(settings.hooks[eventName]) ? settings.hooks[eventName] : [];
+  const exists = current.some((entry) => isClisponsorHookEntry(entry));
+  if (exists) return false;
+
+  settings.hooks[eventName] = [
+    ...current,
+    {
+      hooks: [
+        {
+          type: "command",
+          command,
+          name: "clisponsor",
           timeout: 5000,
         },
       ],
@@ -481,6 +547,270 @@ try {
 `;
 }
 
+function openCodePluginSource() {
+  return `import fs from "node:fs";
+import crypto from "node:crypto";
+
+const CONFIG_PATH = ${JSON.stringify(CONFIG_PATH)};
+const HOOK_VERSION = ${JSON.stringify(HOOK_VERSION)};
+const NON_TUI_COMMANDS = new Set(${JSON.stringify([...OPENCODE_NON_TUI_COMMANDS])});
+
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function likelyTuiInvocation() {
+  const args = process.argv.slice(2).filter((arg) => !arg.startsWith("-"));
+  if (args.length === 0) return true;
+  return !NON_TUI_COMMANDS.has(args[0]);
+}
+
+function sponsoredLine(line) {
+  return "[Sponsored] " + line;
+}
+
+export const CLIsponsorOpenCodePlugin = async ({ client }) => {
+  if (!likelyTuiInvocation()) return {};
+  let startSessionRequested = false;
+
+  async function serve(event, placement, metadata = {}) {
+    if (placement === "StartSession") {
+      if (startSessionRequested) return;
+      startSessionRequested = true;
+    }
+    const cfg = readConfig();
+    const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
+    if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) return;
+
+    try {
+      const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "authorization": "Bearer " + cfg.deviceSecret,
+          "x-clisponsor-hook-version": HOOK_VERSION,
+        },
+        body: JSON.stringify({
+          user_id: cfg.userId,
+          device_code: cfg.deviceCode,
+          client: "OpenCode",
+          hook_event: event,
+          placement,
+          idempotency_key: crypto.randomUUID(),
+          metadata: {
+            hookVersion: HOOK_VERSION,
+            openCode: metadata,
+          },
+        }),
+      });
+      if (!res.ok) return;
+      const ad = await res.json();
+      if (!ad.display_line) return;
+      await client.tui.showToast({
+        body: {
+          title: "CLIsponsor " + placement,
+          message: sponsoredLine(ad.display_line),
+          variant: "info",
+          duration: 10000,
+        },
+      });
+    } catch {}
+  }
+
+  const startupTimer = setTimeout(() => {
+    void serve("plugin.start", "StartSession");
+  }, 2500);
+  startupTimer.unref?.();
+
+  return {
+    event: async ({ event }) => {
+      if (event.type === "session.created") {
+        await serve("session.created", "StartSession", {
+          sessionID: event.properties?.sessionID,
+        });
+      } else if (event.type === "session.idle") {
+        await serve("session.idle", "EndTurn", {
+          sessionID: event.properties?.sessionID,
+        });
+      }
+    },
+    "chat.message": async (input) => {
+      await serve("chat.message", "StartTurn", {
+        sessionID: input.sessionID,
+        agent: input.agent,
+      });
+    },
+  };
+};
+`;
+}
+
+function piExtensionSource() {
+  return `import fs from "node:fs";
+import crypto from "node:crypto";
+
+const CONFIG_PATH = ${JSON.stringify(CONFIG_PATH)};
+const HOOK_VERSION = ${JSON.stringify(HOOK_VERSION)};
+
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function sponsoredLine(line) {
+  return "[Sponsored] " + line;
+}
+
+function canShow(ctx) {
+  return Boolean(ctx?.hasUI && ctx?.ui?.notify);
+}
+
+export default function CLIsponsorPiExtension(pi) {
+  async function serve(event, placement, ctx, metadata = {}) {
+    if (!canShow(ctx)) return;
+    const cfg = readConfig();
+    const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
+    if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) return;
+
+    try {
+      const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "authorization": "Bearer " + cfg.deviceSecret,
+          "x-clisponsor-hook-version": HOOK_VERSION,
+        },
+        body: JSON.stringify({
+          user_id: cfg.userId,
+          device_code: cfg.deviceCode,
+          client: "Pi",
+          hook_event: event,
+          placement,
+          idempotency_key: crypto.randomUUID(),
+          metadata: {
+            hookVersion: HOOK_VERSION,
+            pi: metadata,
+          },
+        }),
+      });
+      if (!res.ok) return;
+      const ad = await res.json();
+      if (!ad.display_line) return;
+      ctx.ui.notify("CLIsponsor " + placement + "\\n" + sponsoredLine(ad.display_line), "info");
+    } catch {}
+  }
+
+  pi.on("session_start", async (event, ctx) => {
+    await serve("session_start", "StartSession", ctx, {
+      reason: event?.reason,
+    });
+  });
+
+  pi.on("agent_start", async (_event, ctx) => {
+    await serve("agent_start", "StartTurn", ctx);
+  });
+
+  pi.on("agent_end", async (_event, ctx) => {
+    await serve("agent_end", "EndTurn", ctx);
+  });
+}
+`;
+}
+
+function copilotHookSource() {
+  return `#!/usr/bin/env node
+import fs from "node:fs";
+import crypto from "node:crypto";
+
+const event = process.argv[2] || "userPromptSubmitted";
+const CONFIG_PATH = ${JSON.stringify(CONFIG_PATH)};
+const HOOK_VERSION = ${JSON.stringify(HOOK_VERSION)};
+const placements = {
+  sessionStart: "StartSession",
+  userPromptSubmitted: "StartTurn",
+  agentStop: "EndTurn",
+};
+
+function sponsoredLine(line) {
+  return "[Sponsored] " + line;
+}
+
+function readStdin() {
+  return new Promise((resolve) => {
+    let data = "";
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", () => resolve(data));
+  });
+}
+
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function progress(message) {
+  console.log(JSON.stringify({ type: "progress", message }));
+}
+
+const inputRaw = await readStdin();
+let input = {};
+try {
+  input = inputRaw.trim() ? JSON.parse(inputRaw) : {};
+} catch {}
+
+try {
+  const placement = placements[event];
+  if (!placement) process.exit(0);
+  const cfg = readConfig();
+  const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
+  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
+
+  const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "authorization": "Bearer " + cfg.deviceSecret,
+      "x-clisponsor-hook-version": HOOK_VERSION,
+    },
+    body: JSON.stringify({
+      user_id: cfg.userId,
+      device_code: cfg.deviceCode,
+      client: "GitHubCopilot",
+      hook_event: event,
+      placement,
+      idempotency_key: crypto.randomUUID(),
+      metadata: {
+        hookVersion: HOOK_VERSION,
+        copilot: {
+          sessionId: input.sessionId || input.session_id,
+          source: input.source,
+          reason: input.reason,
+          stopReason: input.stopReason || input.stop_reason,
+        },
+      },
+    }),
+  });
+  if (!res.ok) process.exit(0);
+  const ad = await res.json();
+  if (!ad.display_line) process.exit(0);
+  progress("CLIsponsor " + placement + ": " + sponsoredLine(ad.display_line));
+  console.log(JSON.stringify({}));
+} catch {
+  process.exit(0);
+}
+`;
+}
+
 function installGemini() {
   if (!commandExists("gemini")) {
     console.log("Gemini CLI not found. To enable CLIsponsor for Gemini, install Gemini CLI and rerun: npx clisponsor@latest install");
@@ -521,23 +851,132 @@ function installAntigravity() {
   console.log("Antigravity CLI hook installed.");
 }
 
+function installOpenCode() {
+  if (!commandExists("opencode")) {
+    console.log("OpenCode CLI not found. To enable CLIsponsor for OpenCode, install OpenCode CLI and rerun: npx clisponsor@latest install");
+    return;
+  }
+
+  const opencodeDir = path.join(CONFIG_DIR, "opencode");
+  fs.mkdirSync(opencodeDir, { recursive: true });
+  const stagedPlugin = path.join(opencodeDir, "clisponsor_opencode_plugin.js");
+  fs.writeFileSync(stagedPlugin, openCodePluginSource(), { mode: 0o644 });
+
+  const pluginsDir = path.join(openCodeConfigDir(), "plugins");
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  const installedPlugin = path.join(pluginsDir, "clisponsor_opencode_plugin.js");
+  fs.copyFileSync(stagedPlugin, installedPlugin);
+  console.log(`Updated ${installedPlugin}`);
+  console.log("OpenCode CLI plugin installed.");
+}
+
+function installPi() {
+  if (!commandExists("pi")) {
+    console.log("Pi CLI not found. To enable CLIsponsor for Pi, install Pi Coding Agent and rerun: npx clisponsor@latest install");
+    return;
+  }
+
+  const piDir = path.join(CONFIG_DIR, "pi");
+  fs.mkdirSync(piDir, { recursive: true });
+  const stagedExtension = path.join(piDir, "clisponsor_pi_extension.ts");
+  fs.writeFileSync(stagedExtension, piExtensionSource(), { mode: 0o644 });
+
+  const extensionsDir = path.join(HOME, ".pi", "agent", "extensions");
+  fs.mkdirSync(extensionsDir, { recursive: true });
+  const installedExtension = path.join(extensionsDir, "clisponsor_pi_extension.ts");
+  fs.copyFileSync(stagedExtension, installedExtension);
+  console.log(`Updated ${installedExtension}`);
+  console.log("Pi CLI extension installed.");
+}
+
+function installCopilot() {
+  if (!commandExists("copilot")) {
+    console.log("GitHub Copilot CLI not found. To enable CLIsponsor for GitHub Copilot CLI, install Copilot CLI and rerun: npx clisponsor@latest install");
+    return;
+  }
+
+  const copilotDir = path.join(CONFIG_DIR, "copilot");
+  fs.mkdirSync(copilotDir, { recursive: true });
+  const hookPath = path.join(copilotDir, "clisponsor_copilot_hook.mjs");
+  fs.writeFileSync(hookPath, copilotHookSource(), { mode: 0o755 });
+
+  const hooksPath = path.join(copilotHome(), "hooks", "clisponsor.json");
+  writeJson(hooksPath, {
+    version: 1,
+    hooks: {
+      sessionStart: [
+        {
+          type: "command",
+          command: `node ${JSON.stringify(hookPath)} sessionStart`,
+          timeoutSec: 5,
+        },
+      ],
+      userPromptSubmitted: [
+        {
+          type: "command",
+          command: `node ${JSON.stringify(hookPath)} userPromptSubmitted`,
+          timeoutSec: 5,
+        },
+      ],
+      agentStop: [
+        {
+          type: "command",
+          command: `node ${JSON.stringify(hookPath)} agentStop`,
+          timeoutSec: 5,
+        },
+      ],
+    },
+  });
+  console.log(`Updated ${hooksPath}`);
+  console.log("GitHub Copilot CLI hook installed.");
+}
+
+function installQwen() {
+  if (!commandExists("qwen")) {
+    console.log("Qwen Code CLI not found. To enable CLIsponsor for Qwen Code, install Qwen Code and rerun: npx clisponsor@latest install");
+    return;
+  }
+
+  const qwenDir = path.join(CONFIG_DIR, "qwen");
+  fs.mkdirSync(qwenDir, { recursive: true });
+  const hookPath = path.join(qwenDir, "clisponsor_qwen_hook.mjs");
+  fs.writeFileSync(hookPath, agentHookSource("QwenCode"), { mode: 0o755 });
+
+  const settingsPath = path.join(qwenHome(), "settings.json");
+  const settings = readEditableJson(settingsPath, {});
+  addQwenCommandHook(settings, "SessionStart", `node ${JSON.stringify(hookPath)} SessionStart`);
+  addQwenCommandHook(settings, "UserPromptSubmit", `node ${JSON.stringify(hookPath)} UserPromptSubmit`);
+  addQwenCommandHook(settings, "Stop", `node ${JSON.stringify(hookPath)} Stop`);
+  writeJson(settingsPath, settings);
+  console.log(`Updated ${settingsPath}`);
+  console.log("Qwen Code CLI hook installed.");
+}
+
 function installAll() {
   installCodex();
   installClaude();
   installGemini();
   installAntigravity();
+  installOpenCode();
+  installPi();
+  installCopilot();
+  installQwen();
 }
 
 function install() {
   const target = process.argv[3] && !process.argv[3].startsWith("--") ? process.argv[3] : "all";
-  if (!["all", "codex", "claude", "gemini", "antigravity", "agy"].includes(target)) {
-    console.error("Unknown install target. Use: codex, claude, gemini, antigravity, or all.");
+  if (!["all", "codex", "claude", "gemini", "antigravity", "agy", "opencode", "pi", "copilot", "qwen"].includes(target)) {
+    console.error("Unknown install target. Use: codex, claude, gemini, antigravity, opencode, pi, copilot, qwen, or all.");
     process.exit(1);
   }
   if (target === "all") installAll();
   else if (target === "codex") installCodex();
   else if (target === "claude") installClaude();
   else if (target === "gemini") installGemini();
+  else if (target === "opencode") installOpenCode();
+  else if (target === "pi") installPi();
+  else if (target === "copilot") installCopilot();
+  else if (target === "qwen") installQwen();
   else installAntigravity();
 }
 
@@ -591,16 +1030,69 @@ function uninstallAntigravity() {
   console.log("Removed Antigravity hook script.");
 }
 
+function uninstallOpenCode() {
+  const installedPlugin = path.join(openCodeConfigDir(), "plugins", "clisponsor_opencode_plugin.js");
+  if (fs.existsSync(installedPlugin)) {
+    fs.rmSync(installedPlugin, { force: true });
+    console.log(`Removed ${installedPlugin}`);
+  } else {
+    console.log("No CLIsponsor OpenCode plugin found.");
+  }
+  fs.rmSync(path.join(CONFIG_DIR, "opencode"), { recursive: true, force: true });
+}
+
+function uninstallPi() {
+  const installedExtension = path.join(HOME, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts");
+  if (fs.existsSync(installedExtension)) {
+    fs.rmSync(installedExtension, { force: true });
+    console.log(`Removed ${installedExtension}`);
+  } else {
+    console.log("No CLIsponsor Pi extension found.");
+  }
+  fs.rmSync(path.join(CONFIG_DIR, "pi"), { recursive: true, force: true });
+}
+
+function uninstallCopilot() {
+  const hooksPath = path.join(copilotHome(), "hooks", "clisponsor.json");
+  if (fs.existsSync(hooksPath)) {
+    fs.rmSync(hooksPath, { force: true });
+    console.log(`Removed ${hooksPath}`);
+  } else {
+    console.log("No CLIsponsor GitHub Copilot CLI hook found.");
+  }
+  fs.rmSync(path.join(CONFIG_DIR, "copilot"), { recursive: true, force: true });
+}
+
+function uninstallQwen() {
+  const settingsPath = path.join(qwenHome(), "settings.json");
+  const settings = readEditableJson(settingsPath, {});
+  if (removeClaudeCommandHooks(settings)) {
+    writeJson(settingsPath, settings);
+    console.log(`Removed CLIsponsor hooks from ${settingsPath}`);
+  } else {
+    console.log("No CLIsponsor Qwen Code hooks found.");
+  }
+  fs.rmSync(path.join(CONFIG_DIR, "qwen", "clisponsor_qwen_hook.mjs"), { force: true });
+  try {
+    fs.rmdirSync(path.join(CONFIG_DIR, "qwen"));
+  } catch {}
+  console.log("Removed Qwen Code hook script.");
+}
+
 function uninstall() {
   const target = process.argv[3] && !process.argv[3].startsWith("--") ? process.argv[3] : "all";
-  if (!["all", "codex", "claude", "gemini", "antigravity", "agy"].includes(target)) {
-    console.error("Unknown uninstall target. Use: codex, claude, gemini, antigravity, or all.");
+  if (!["all", "codex", "claude", "gemini", "antigravity", "agy", "opencode", "pi", "copilot", "qwen"].includes(target)) {
+    console.error("Unknown uninstall target. Use: codex, claude, gemini, antigravity, opencode, pi, copilot, qwen, or all.");
     process.exit(1);
   }
   if (target === "all" || target === "codex") uninstallCodex();
   if (target === "all" || target === "claude") uninstallClaude();
   if (target === "all" || target === "gemini") uninstallGemini();
   if (target === "all" || target === "antigravity" || target === "agy") uninstallAntigravity();
+  if (target === "all" || target === "opencode") uninstallOpenCode();
+  if (target === "all" || target === "pi") uninstallPi();
+  if (target === "all" || target === "copilot") uninstallCopilot();
+  if (target === "all" || target === "qwen") uninstallQwen();
   if (hasFlag("--config")) {
     fs.rmSync(CONFIG_PATH, { force: true });
     console.log(`Removed ${CONFIG_PATH}`);
@@ -660,6 +1152,10 @@ async function doctor() {
 	      claudeHookScript: fs.existsSync(path.join(CONFIG_DIR, "claude", "clisponsor_claude_hook.mjs")),
 	      geminiHookScript: fs.existsSync(path.join(CONFIG_DIR, "gemini", "clisponsor_gemini_hook.mjs")),
 	      antigravityHookScript: fs.existsSync(path.join(CONFIG_DIR, "antigravity", "clisponsor_antigravity_hook.mjs")),
+	      opencodePlugin: fs.existsSync(path.join(openCodeConfigDir(), "plugins", "clisponsor_opencode_plugin.js")),
+	      piExtension: fs.existsSync(path.join(HOME, ".pi", "agent", "extensions", "clisponsor_pi_extension.ts")),
+	      copilotHook: fs.existsSync(path.join(copilotHome(), "hooks", "clisponsor.json")),
+	      qwenHookScript: fs.existsSync(path.join(CONFIG_DIR, "qwen", "clisponsor_qwen_hook.mjs")),
 	    },
     network: {},
   };
@@ -687,6 +1183,10 @@ async function doctor() {
   console.log(`Claude hook script: ${diagnostics.installed.claudeHookScript ? "yes" : "no"}`);
   console.log(`Gemini hook script: ${diagnostics.installed.geminiHookScript ? "yes" : "no"}`);
   console.log(`Antigravity hook script: ${diagnostics.installed.antigravityHookScript ? "yes" : "no"}`);
+  console.log(`OpenCode plugin: ${diagnostics.installed.opencodePlugin ? "yes" : "no"}`);
+  console.log(`Pi extension: ${diagnostics.installed.piExtension ? "yes" : "no"}`);
+  console.log(`GitHub Copilot CLI hook: ${diagnostics.installed.copilotHook ? "yes" : "no"}`);
+  console.log(`Qwen Code hook script: ${diagnostics.installed.qwenHookScript ? "yes" : "no"}`);
   if (skipNetwork) {
     console.log("Network: skipped");
   } else {
@@ -697,9 +1197,9 @@ async function doctor() {
 
 function help() {
   console.log(`clisponsor commands:
-  clisponsor install [all|codex|claude|gemini|antigravity]
+  clisponsor install [all|codex|claude|gemini|antigravity|opencode|pi|copilot|qwen]
   clisponsor login <email> [--label=<device-label>]
-  clisponsor uninstall [all|codex|claude|gemini|antigravity] [--config]
+  clisponsor uninstall [all|codex|claude|gemini|antigravity|opencode|pi|copilot|qwen] [--config]
   clisponsor status
   clisponsor doctor [--json] [--skip-network]
 

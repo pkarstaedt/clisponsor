@@ -1,7 +1,7 @@
 {
   "name": "clisponsor",
-  "version": "1.0.11",
-  "description": "CLIsponsor installer for Codex, Claude Code, and Gemini sponsored CLI placements.",
+  "version": "1.0.15",
+  "description": "CLIsponsor installer for Codex, Claude Code, Gemini, Antigravity, OpenCode, Pi, GitHub Copilot CLI, and Qwen Code sponsored CLI placements.",
   "type": "module",
   "engines": {
     "node": ">=20"
