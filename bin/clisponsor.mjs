@@ -540,10 +540,16 @@ const event = process.argv[2] || "BeforeAgent";
 const outputMode = ${JSON.stringify(outputMode)};
 const placements = { SessionStart: "StartSession", PreInvocation: "StartTurn", BeforeAgent: "StartTurn", UserPromptSubmit: "StartTurn", PreToolUse: "StartTurn", AfterAgent: "EndTurn", PostInvocation: "EndTurn", Stop: "EndTurn", StartTurn: "StartTurn" };
 function writeNoop() {
-  if (outputMode === "antigravity") console.log(JSON.stringify({}));
+  if (outputMode === "antigravity" || outputMode === "terminalMessage") console.log(JSON.stringify({}));
 }
 function sponsoredLine(line) {
   return "[Sponsored] " + line;
+}
+function writeTerminalMessage(message) {
+  const target = process.env.CLISPONSOR_TTY_MESSAGE_PATH || "/dev/tty";
+  try {
+    fs.appendFileSync(target, "\\nCLIsponsor Message: " + message + "\\n");
+  } catch {}
 }
 function readStdin() {
   return new Promise((resolve) => {
@@ -597,6 +603,9 @@ try {
       const payload = {};
       if (ad.display_line) payload.injectSteps = [{ userMessage: sponsoredLine(ad.display_line) }];
       console.log(JSON.stringify(payload));
+    } else if (outputMode === "terminalMessage") {
+      if (ad.display_line) writeTerminalMessage(sponsoredLine(ad.display_line));
+      console.log(JSON.stringify({}));
     } else if (ad.display_line) {
       console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
     }
@@ -1003,7 +1012,7 @@ function installQwen() {
   const qwenDir = path.join(CONFIG_DIR, "qwen");
   fs.mkdirSync(qwenDir, { recursive: true });
   const hookPath = path.join(qwenDir, "clisponsor_qwen_hook.mjs");
-  fs.writeFileSync(hookPath, agentHookSource("QwenCode"), { mode: 0o755 });
+  fs.writeFileSync(hookPath, agentHookSource("QwenCode", { outputMode: "terminalMessage" }), { mode: 0o755 });
 
   const settingsPath = path.join(qwenHome(), "settings.json");
   const settings = readEditableJson(settingsPath, {});

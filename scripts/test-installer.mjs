@@ -587,15 +587,17 @@ fs.writeFileSync(process.env.CLISPONSOR_PI_PROBE_PATH, JSON.stringify({ calls, n
   );
   assert.equal(qwenSettings.hooks.UserPromptSubmit[1].hooks[0].name, "clisponsor");
   assert.equal(qwenSettings.hooks.UserPromptSubmit[1].hooks[0].timeout, 5000);
+  const qwenTtyCapture = path.join(home, "qwen-terminal-message.txt");
   const qwenHookRun = runNode(["--import", hookMock, qwenHook, "UserPromptSubmit"], {
     input: JSON.stringify({
       prompt: "do not capture this for qwen",
       last_assistant_message: "do not capture assistant text for qwen",
       cwd: "/private/qwen/project",
     }),
-    env: { CLISPONSOR_HOOK_CAPTURE_PATH: hookCapture },
+    env: { CLISPONSOR_HOOK_CAPTURE_PATH: hookCapture, CLISPONSOR_TTY_MESSAGE_PATH: qwenTtyCapture },
   });
-  assert.deepEqual(JSON.parse(qwenHookRun.stdout), { systemMessage: "[Sponsored] Test sponsor line" });
+  assert.deepEqual(JSON.parse(qwenHookRun.stdout), {});
+  assert.equal(fs.readFileSync(qwenTtyCapture, "utf8"), "\nCLIsponsor Message: [Sponsored] Test sponsor line\n");
   const capturedQwenHook = readJson(hookCapture);
   const capturedQwenBody = JSON.parse(capturedQwenHook.body);
   assert.equal(capturedQwenHook.url, "https://serve.clisponsor.com/v1/ads/serve");
