@@ -675,7 +675,7 @@ export const CLIsponsorOpenCodePlugin = async ({ client }) => {
       if (!ad.display_line) return;
       await client.tui.showToast({
         body: {
-          title: "CLIsponsor " + placement,
+          title: "CLIsponsor Message",
           message: sponsoredLine(ad.display_line),
           variant: "info",
           duration: 10000,
@@ -766,7 +766,7 @@ export default function CLIsponsorPiExtension(pi) {
       if (!res.ok) return;
       const ad = await res.json();
       if (!ad.display_line) return;
-      ctx.ui.notify("CLIsponsor " + placement + "\\n" + sponsoredLine(ad.display_line), "info");
+      ctx.ui.notify("CLIsponsor Message\\n" + sponsoredLine(ad.display_line), "info");
     } catch {}
   }
 
@@ -866,7 +866,7 @@ try {
   if (!res.ok) process.exit(0);
   const ad = await res.json();
   if (!ad.display_line) process.exit(0);
-  progress("CLIsponsor " + placement + ": " + sponsoredLine(ad.display_line));
+  progress("CLIsponsor Message: " + sponsoredLine(ad.display_line));
   console.log(JSON.stringify({}));
 } catch {
   process.exit(0);

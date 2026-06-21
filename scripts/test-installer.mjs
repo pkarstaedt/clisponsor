@@ -459,7 +459,7 @@ fs.writeFileSync(process.env.CLISPONSOR_OPENCODE_PROBE_PATH, JSON.stringify({ ca
   assert.equal(opencodeBody.placement, "StartTurn");
   assert.equal(opencodeBody.metadata.openCode.sessionID, "session-123");
   assert.equal(opencodeProbeResult.toasts.length, 1);
-  assert.equal(opencodeProbeResult.toasts[0].body.title, "CLIsponsor StartTurn");
+  assert.equal(opencodeProbeResult.toasts[0].body.title, "CLIsponsor Message");
   assert.equal(opencodeProbeResult.toasts[0].body.message, "[Sponsored] OpenCode sponsor line");
 
   const fakeBinWithPi = makeFakeBin(["pi"]);
@@ -516,7 +516,7 @@ fs.writeFileSync(process.env.CLISPONSOR_PI_PROBE_PATH, JSON.stringify({ calls, n
   assert.deepEqual(piBody.metadata.pi, {});
   assert.equal(piProbeResult.notifications.length, 1);
   assert.equal(piProbeResult.notifications[0].variant, "info");
-  assert.equal(piProbeResult.notifications[0].message, "CLIsponsor StartTurn\n[Sponsored] Pi sponsor line");
+  assert.equal(piProbeResult.notifications[0].message, "CLIsponsor Message\n[Sponsored] Pi sponsor line");
 
   const fakeBinWithCopilot = makeFakeBin(["copilot"]);
   const copilotInstallOutput = run(["install", "copilot"], { pathValue: fakeBinWithCopilot });
@@ -542,7 +542,7 @@ fs.writeFileSync(process.env.CLISPONSOR_PI_PROBE_PATH, JSON.stringify({ calls, n
   });
   const copilotOutput = copilotHookRun.stdout.trim().split(/\n/).map((line) => JSON.parse(line));
   assert.deepEqual(copilotOutput, [
-    { type: "progress", message: "CLIsponsor StartTurn: [Sponsored] Test sponsor line" },
+    { type: "progress", message: "CLIsponsor Message: [Sponsored] Test sponsor line" },
     {},
   ]);
   const capturedCopilotHook = readJson(hookCapture);
