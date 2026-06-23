@@ -6,7 +6,10 @@ import crypto from "node:crypto";
 
 const HOOK_VERSION = "1.0.0";
 const event = process.argv[2] || "UserPromptSubmit";
-const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".clisponsor", "config.json"), "utf8"));
+let cfg = {};
+try {
+  cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".clisponsor", "config.json"), "utf8"));
+} catch {}
 const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
 const placements = {
   SessionStart: "StartSession",
@@ -26,31 +29,39 @@ function sponsoredLine(line) {
   return `[Sponsored] ${line}`;
 }
 
+function responseMessage(ad) {
+  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+}
+
 await readStdin();
 
 try {
-  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
+  const placement = placements[event] || "StartTurn";
+  const authenticated = Boolean(cfg.userId && cfg.deviceCode && cfg.deviceSecret);
+  if (!serveBaseUrl || (!authenticated && placement !== "StartSession")) process.exit(0);
   const body = {
-    user_id: cfg.userId,
-    device_code: cfg.deviceCode,
+    user_id: cfg.userId || null,
+    device_code: cfg.deviceCode || null,
     client: "ClaudeCode",
     hook_event: event,
-    placement: placements[event] || "StartTurn",
+    placement,
     idempotency_key: crypto.randomUUID(),
     metadata: { hookVersion: HOOK_VERSION },
   };
+  const headers = {
+    "content-type": "application/json",
+    "x-clisponsor-hook-version": HOOK_VERSION,
+  };
+  if (cfg.deviceSecret) headers.authorization = `Bearer ${cfg.deviceSecret}`;
   const res = await fetch(`${serveBaseUrl}/v1/ads/serve`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": `Bearer ${cfg.deviceSecret}`,
-      "x-clisponsor-hook-version": HOOK_VERSION,
-    },
+    headers,
     body: JSON.stringify(body),
   });
   if (!res.ok) process.exit(0);
   const ad = await res.json();
-  if (ad.display_line) console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
+  const message = responseMessage(ad);
+  if (message) console.log(JSON.stringify({ systemMessage: message }));
 } catch {
   process.exit(0);
 }

@@ -524,6 +524,17 @@ async function login() {
   await registerDevice();
 }
 
+function ensureInstallConfig() {
+  const next = config();
+  const serveApiArg = argValue("--serve-api");
+  const backendApiArg = argValue("--backend-api");
+
+  if (serveApiArg) next.serveBaseUrl = normalizeBaseUrl(serveApiArg);
+  if (backendApiArg) next.backendBaseUrl = normalizeBaseUrl(backendApiArg);
+  next.apiBaseUrl = next.serveBaseUrl;
+  writeJson(CONFIG_PATH, next);
+}
+
 function installCodex() {
   if (!commandExists("codex")) {
     console.log("Codex CLI not found. To enable CLIsponsor for Codex, install Codex CLI and rerun: npx clisponsor@latest install");
@@ -600,6 +611,9 @@ function writeNoop() {
 function sponsoredLine(line) {
   return "[Sponsored] " + line;
 }
+function responseMessage(ad) {
+  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+}
 function writeTerminalMessage(message) {
   const target = process.env.CLISPONSOR_TTY_MESSAGE_PATH || "/dev/tty";
   try {
@@ -631,7 +645,9 @@ try {
     writeNoop();
     process.exit(0);
   }
-  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) {
+  const placement = placements[event] || event;
+  const authenticated = Boolean(cfg.userId && cfg.deviceCode && cfg.deviceSecret);
+  if (!serveBaseUrl || (!authenticated && placement !== "StartSession")) {
     writeNoop();
     process.exit(0);
   }
@@ -641,28 +657,29 @@ try {
       process.exit(0);
     }
   }
-  const placement = placements[event] || event;
-  const body = { user_id: cfg.userId, device_code: cfg.deviceCode, client: ${JSON.stringify(client)}, hook_event: event, placement, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)}, antigravity: outputMode === "antigravity" ? { invocationNum: hookInput.invocationNum, initialNumSteps: hookInput.initialNumSteps, executionNum: hookInput.executionNum, terminationReason: hookInput.terminationReason, fullyIdle: hookInput.fullyIdle } : undefined } };
+  const body = { user_id: cfg.userId || null, device_code: cfg.deviceCode || null, client: ${JSON.stringify(client)}, hook_event: event, placement, idempotency_key: crypto.randomUUID(), metadata: { hookVersion: ${JSON.stringify(HOOK_VERSION)}, antigravity: outputMode === "antigravity" ? { invocationNum: hookInput.invocationNum, initialNumSteps: hookInput.initialNumSteps, executionNum: hookInput.executionNum, terminationReason: hookInput.terminationReason, fullyIdle: hookInput.fullyIdle } : undefined } };
+  const headers = {
+    "content-type": "application/json",
+    "x-clisponsor-hook-version": ${JSON.stringify(HOOK_VERSION)}
+  };
+  if (cfg.deviceSecret) headers.authorization = "Bearer " + cfg.deviceSecret;
   const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": "Bearer " + cfg.deviceSecret,
-      "x-clisponsor-hook-version": ${JSON.stringify(HOOK_VERSION)}
-    },
+    headers,
     body: JSON.stringify(body)
   });
   if (res.ok) {
     const ad = await res.json();
+    const message = responseMessage(ad);
     if (outputMode === "antigravity") {
       const payload = {};
-      if (ad.display_line) payload.injectSteps = [{ userMessage: sponsoredLine(ad.display_line) }];
+      if (message) payload.injectSteps = [{ userMessage: message }];
       console.log(JSON.stringify(payload));
     } else if (outputMode === "terminalMessage") {
-      if (ad.display_line) writeTerminalMessage(sponsoredLine(ad.display_line));
+      if (message) writeTerminalMessage(message);
       console.log(JSON.stringify({}));
-    } else if (ad.display_line) {
-      console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
+    } else if (message) {
+      console.log(JSON.stringify({ systemMessage: message }));
     }
   } else {
     writeNoop();
@@ -700,6 +717,10 @@ function sponsoredLine(line) {
   return "[Sponsored] " + line;
 }
 
+function responseMessage(ad) {
+  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+}
+
 export const CLIsponsorOpenCodePlugin = async ({ client }) => {
   if (!likelyTuiInvocation()) return {};
   let startSessionRequested = false;
@@ -711,19 +732,21 @@ export const CLIsponsorOpenCodePlugin = async ({ client }) => {
     }
     const cfg = readConfig();
     const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
-    if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) return;
+    const authenticated = Boolean(cfg.userId && cfg.deviceCode && cfg.deviceSecret);
+    if (!serveBaseUrl || (!authenticated && placement !== "StartSession")) return;
 
     try {
+      const headers = {
+        "content-type": "application/json",
+        "x-clisponsor-hook-version": HOOK_VERSION,
+      };
+      if (cfg.deviceSecret) headers.authorization = "Bearer " + cfg.deviceSecret;
       const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "authorization": "Bearer " + cfg.deviceSecret,
-          "x-clisponsor-hook-version": HOOK_VERSION,
-        },
+        headers,
         body: JSON.stringify({
-          user_id: cfg.userId,
-          device_code: cfg.deviceCode,
+          user_id: cfg.userId || null,
+          device_code: cfg.deviceCode || null,
           client: "OpenCode",
           hook_event: event,
           placement,
@@ -736,11 +759,12 @@ export const CLIsponsorOpenCodePlugin = async ({ client }) => {
       });
       if (!res.ok) return;
       const ad = await res.json();
-      if (!ad.display_line) return;
+      const message = responseMessage(ad);
+      if (!message) return;
       await client.tui.showToast({
         body: {
           title: "CLIsponsor Message",
-          message: sponsoredLine(ad.display_line),
+          message,
           variant: "info",
           duration: 10000,
         },
@@ -795,6 +819,10 @@ function sponsoredLine(line) {
   return "[Sponsored] " + line;
 }
 
+function responseMessage(ad) {
+  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+}
+
 function canShow(ctx) {
   return Boolean(ctx?.hasUI && ctx?.ui?.notify);
 }
@@ -804,19 +832,21 @@ export default function CLIsponsorPiExtension(pi) {
     if (!canShow(ctx)) return;
     const cfg = readConfig();
     const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
-    if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) return;
+    const authenticated = Boolean(cfg.userId && cfg.deviceCode && cfg.deviceSecret);
+    if (!serveBaseUrl || (!authenticated && placement !== "StartSession")) return;
 
     try {
+      const headers = {
+        "content-type": "application/json",
+        "x-clisponsor-hook-version": HOOK_VERSION,
+      };
+      if (cfg.deviceSecret) headers.authorization = "Bearer " + cfg.deviceSecret;
       const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "authorization": "Bearer " + cfg.deviceSecret,
-          "x-clisponsor-hook-version": HOOK_VERSION,
-        },
+        headers,
         body: JSON.stringify({
-          user_id: cfg.userId,
-          device_code: cfg.deviceCode,
+          user_id: cfg.userId || null,
+          device_code: cfg.deviceCode || null,
           client: "Pi",
           hook_event: event,
           placement,
@@ -829,8 +859,9 @@ export default function CLIsponsorPiExtension(pi) {
       });
       if (!res.ok) return;
       const ad = await res.json();
-      if (!ad.display_line) return;
-      ctx.ui.notify("CLIsponsor Message\\n" + sponsoredLine(ad.display_line), "info");
+      const message = responseMessage(ad);
+      if (!message) return;
+      ctx.ui.notify("CLIsponsor Message\\n" + message, "info");
     } catch {}
   }
 
@@ -869,6 +900,10 @@ function sponsoredLine(line) {
   return "[Sponsored] " + line;
 }
 
+function responseMessage(ad) {
+  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+}
+
 function readStdin() {
   return new Promise((resolve) => {
     let data = "";
@@ -900,18 +935,20 @@ try {
   if (!placement) process.exit(0);
   const cfg = readConfig();
   const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
-  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
+  const authenticated = Boolean(cfg.userId && cfg.deviceCode && cfg.deviceSecret);
+  if (!serveBaseUrl || (!authenticated && placement !== "StartSession")) process.exit(0);
 
+  const headers = {
+    "content-type": "application/json",
+    "x-clisponsor-hook-version": HOOK_VERSION,
+  };
+  if (cfg.deviceSecret) headers.authorization = "Bearer " + cfg.deviceSecret;
   const res = await fetch(serveBaseUrl + "/v1/ads/serve", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": "Bearer " + cfg.deviceSecret,
-      "x-clisponsor-hook-version": HOOK_VERSION,
-    },
+    headers,
     body: JSON.stringify({
-      user_id: cfg.userId,
-      device_code: cfg.deviceCode,
+      user_id: cfg.userId || null,
+      device_code: cfg.deviceCode || null,
       client: "GitHubCopilot",
       hook_event: event,
       placement,
@@ -929,8 +966,9 @@ try {
   });
   if (!res.ok) process.exit(0);
   const ad = await res.json();
-  if (!ad.display_line) process.exit(0);
-  progress("CLIsponsor Message: " + sponsoredLine(ad.display_line));
+  const message = responseMessage(ad);
+  if (!message) process.exit(0);
+  progress("CLIsponsor Message: " + message);
   console.log(JSON.stringify({}));
 } catch {
   process.exit(0);
@@ -1192,6 +1230,7 @@ function install() {
     console.error("Unknown install target. Use: codex, claude, gemini, antigravity, opencode, pi, copilot, qwen, droid, devin, or all.");
     process.exit(1);
   }
+  ensureInstallConfig();
   renderInstallHeader(target);
   const results = target === "all" ? installAll() : [installTarget(findInstallTarget(target))];
   renderInstallSummary(results);

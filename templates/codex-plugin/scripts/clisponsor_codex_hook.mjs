@@ -20,11 +20,19 @@ function readStdin() {
 }
 
 function readConfig() {
-  return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  } catch {
+    return {};
+  }
 }
 
 function sponsoredLine(line) {
   return `[Sponsored] ${line}`;
+}
+
+function responseMessage(ad) {
+  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
 }
 
 const cfg = readConfig();
@@ -32,29 +40,32 @@ const serveBaseUrl = cfg.serveBaseUrl || cfg.apiBaseUrl;
 await readStdin();
 
 try {
-  if (!serveBaseUrl || !cfg.userId || !cfg.deviceCode || !cfg.deviceSecret) process.exit(0);
   const placement = PLACEMENTS[EVENT] || "StartTurn";
+  const authenticated = Boolean(cfg.userId && cfg.deviceCode && cfg.deviceSecret);
+  if (!serveBaseUrl || (!authenticated && placement !== "StartSession")) process.exit(0);
   const body = {
-    user_id: cfg.userId,
-    device_code: cfg.deviceCode,
+    user_id: cfg.userId || null,
+    device_code: cfg.deviceCode || null,
     client: "Codex",
     hook_event: EVENT,
     placement,
     idempotency_key: crypto.randomUUID(),
     metadata: { hookVersion: HOOK_VERSION },
   };
+  const headers = {
+    "content-type": "application/json",
+    "x-clisponsor-hook-version": HOOK_VERSION,
+  };
+  if (cfg.deviceSecret) headers.authorization = `Bearer ${cfg.deviceSecret}`;
   const res = await fetch(`${serveBaseUrl}/v1/ads/serve`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": `Bearer ${cfg.deviceSecret}`,
-      "x-clisponsor-hook-version": HOOK_VERSION,
-    },
+    headers,
     body: JSON.stringify(body),
   });
   if (!res.ok) process.exit(0);
   const ad = await res.json();
-  if (ad.display_line) console.log(JSON.stringify({ systemMessage: sponsoredLine(ad.display_line) }));
+  const message = responseMessage(ad);
+  if (message) console.log(JSON.stringify({ systemMessage: message }));
 } catch {
   process.exit(0);
 }
