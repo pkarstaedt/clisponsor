@@ -608,11 +608,11 @@ const placements = { SessionStart: "StartSession", PreInvocation: "StartTurn", B
 function writeNoop() {
   if (outputMode === "antigravity" || outputMode === "terminalMessage") console.log(JSON.stringify({}));
 }
-function sponsoredLine(line) {
-  return "[Sponsored] " + line;
+function sponsoredLine(line, forwardDisplayUrl = "") {
+  return "[Sponsored] " + line + (forwardDisplayUrl ? " | " + forwardDisplayUrl : "");
 }
 function responseMessage(ad) {
-  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+  return ad.display_line ? sponsoredLine(ad.display_line, ad.forward_display_url) : ad.message || "";
 }
 function writeTerminalMessage(message) {
   const target = process.env.CLISPONSOR_TTY_MESSAGE_PATH || "/dev/tty";
@@ -713,12 +713,12 @@ function likelyTuiInvocation() {
   return !NON_TUI_COMMANDS.has(args[0]);
 }
 
-function sponsoredLine(line) {
-  return "[Sponsored] " + line;
+function sponsoredLine(line, forwardDisplayUrl = "") {
+  return "[Sponsored] " + line + (forwardDisplayUrl ? " | " + forwardDisplayUrl : "");
 }
 
 function responseMessage(ad) {
-  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+  return ad.display_line ? sponsoredLine(ad.display_line, ad.forward_display_url) : ad.message || "";
 }
 
 export const CLIsponsorOpenCodePlugin = async ({ client }) => {
@@ -815,12 +815,12 @@ function readConfig() {
   }
 }
 
-function sponsoredLine(line) {
-  return "[Sponsored] " + line;
+function sponsoredLine(line, forwardDisplayUrl = "") {
+  return "[Sponsored] " + line + (forwardDisplayUrl ? " | " + forwardDisplayUrl : "");
 }
 
 function responseMessage(ad) {
-  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+  return ad.display_line ? sponsoredLine(ad.display_line, ad.forward_display_url) : ad.message || "";
 }
 
 function canShow(ctx) {
@@ -896,12 +896,12 @@ const placements = {
   agentStop: "EndTurn",
 };
 
-function sponsoredLine(line) {
-  return "[Sponsored] " + line;
+function sponsoredLine(line, forwardDisplayUrl = "") {
+  return "[Sponsored] " + line + (forwardDisplayUrl ? " | " + forwardDisplayUrl : "");
 }
 
 function responseMessage(ad) {
-  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+  return ad.display_line ? sponsoredLine(ad.display_line, ad.forward_display_url) : ad.message || "";
 }
 
 function readStdin() {

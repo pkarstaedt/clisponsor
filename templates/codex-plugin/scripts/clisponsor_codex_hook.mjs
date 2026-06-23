@@ -27,12 +27,12 @@ function readConfig() {
   }
 }
 
-function sponsoredLine(line) {
-  return `[Sponsored] ${line}`;
+function sponsoredLine(line, forwardDisplayUrl = "") {
+  return `[Sponsored] ${line}${forwardDisplayUrl ? ` | ${forwardDisplayUrl}` : ""}`;
 }
 
 function responseMessage(ad) {
-  return ad.display_line ? sponsoredLine(ad.display_line) : ad.message || "";
+  return ad.display_line ? sponsoredLine(ad.display_line, ad.forward_display_url) : ad.message || "";
 }
 
 const cfg = readConfig();
